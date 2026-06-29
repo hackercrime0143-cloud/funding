@@ -149,6 +149,13 @@ export default function FastPayApp() {
       if (!isMobileWidth || isIos || !isAndroid) {
         setIsDeviceBlocked(true);
       }
+
+      // Register PWA service worker
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/sw.js')
+          .then((reg) => console.log('Service Worker registered:', reg.scope))
+          .catch((err) => console.error('Service Worker registration failed:', err));
+      }
     }
   }, []);
 
@@ -1330,9 +1337,9 @@ export default function FastPayApp() {
             </div>
             <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
               <button
-                onClick={() => { setDepositAmount(''); setVirtualAccount(null); setTxMessage({ type: '', text: '' }); setShowDepositModal(true); }}
-                className="gradient-btn"
-                style={{ flex: 1, padding: '12px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                disabled={true}
+                style={{ flex: 1, padding: '12px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', color: 'var(--text-secondary)', cursor: 'not-allowed', opacity: 0.6 }}
+                title="Please purchase investment schemes directly to deposit funds"
               >
                 <Plus size={16} /> Deposit
               </button>
