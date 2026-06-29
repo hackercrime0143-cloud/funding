@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
-import { User, Order, Transaction, BankDetails } from '@/lib/models';
+import { User, Order, Transaction, BankDetails, Settings } from '@/lib/models';
 import { getSessionFromCookies } from '@/lib/auth';
 
 export async function GET(request) {
@@ -77,8 +77,13 @@ export async function GET(request) {
     // Get linking status
     const bankDetails = await BankDetails.findOne({ user_id: session.id });
 
+    // Get APK download URL
+    const apkSetting = await Settings.findOne({ key: 'apk_download_url' });
+    const apkDownloadUrl = apkSetting ? apkSetting.value : '';
+
     return NextResponse.json({
       success: true,
+      apkDownloadUrl,
       user: {
         id: user._id.toString(),
         username: user.username,

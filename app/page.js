@@ -72,6 +72,30 @@ export default function FastPayApp() {
   const [showLevelBMembers, setShowLevelBMembers] = useState(false);
   const [showTelegramGate, setShowTelegramGate] = useState(false);
 
+  // Admin Expanded Sub-Pages states
+  const [adminView, setAdminView] = useState('dashboard'); // 'dashboard', 'combined-balance', 'active-investments', 'user-profile'
+  const [selectedAdminUserId, setSelectedAdminUserId] = useState(null);
+  const [adminUserProfileData, setAdminUserProfileData] = useState(null);
+  const [adminUserProfileLoading, setAdminUserProfileLoading] = useState(false);
+  const [apkDownloadUrl, setApkDownloadUrl] = useState('');
+  const [newApkDownloadUrl, setNewApkDownloadUrl] = useState('');
+
+  // Search, sort, filter, and pagination states
+  const [userSearch, setUserSearch] = useState('');
+  const [userFilter, setUserFilter] = useState('all');
+  const [userSort, setUserSort] = useState('date-desc');
+  const [userPage, setUserPage] = useState(1);
+
+  const [cbSearch, setCbSearch] = useState('');
+  const [cbFilter, setCbFilter] = useState('all');
+  const [cbSort, setCbSort] = useState('balance-desc');
+  const [cbPage, setCbPage] = useState(1);
+
+  const [aiSearch, setAiSearch] = useState('');
+  const [aiFilter, setAiFilter] = useState('all');
+  const [aiSort, setAiSort] = useState('amount-desc');
+  const [aiPage, setAiPage] = useState(1);
+
   // Admin Panel States
   const [adminUsers, setAdminUsers] = useState([]);
   const [adminTransactions, setAdminTransactions] = useState([]);
@@ -234,6 +258,10 @@ export default function FastPayApp() {
       const data = await res.json();
       if (data.success) {
         setUser(data.user);
+        if (data.apkDownloadUrl) {
+          setApkDownloadUrl(data.apkDownloadUrl);
+          setNewApkDownloadUrl(data.apkDownloadUrl);
+        }
         setAppState('app');
         fetchSchemes();
         fetchOrders();
@@ -276,6 +304,45 @@ export default function FastPayApp() {
       console.error('Error fetching admin data:', e);
     } finally {
       setAdminLoading(false);
+    }
+  };
+
+  const fetchUserProfileDetails = async (userId) => {
+    setAdminUserProfileLoading(true);
+    try {
+      const res = await fetch(`/api/admin/user-details?userId=${userId}`);
+      const data = await res.json();
+      if (data.success) {
+        setAdminUserProfileData(data.details);
+      } else {
+        alert(data.error || 'Failed to retrieve user details.');
+      }
+    } catch (e) {
+      alert('Error fetching user profile details.');
+    } finally {
+      setAdminUserProfileLoading(false);
+    }
+  };
+
+  const handleSaveApkUrl = async () => {
+    try {
+      const res = await fetch('/api/admin/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'saveApkUrl',
+          payload: { apkUrl: newApkDownloadUrl }
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(data.message);
+        setApkDownloadUrl(newApkDownloadUrl);
+      } else {
+        alert(data.error || 'Failed to save APK link.');
+      }
+    } catch (e) {
+      alert('Error saving APK link.');
     }
   };
 
@@ -1008,7 +1075,7 @@ export default function FastPayApp() {
                 <input
                   type="text"
                   className="form-input"
-                  placeholder="e.g. atifk"
+                  placeholder=""
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   required
@@ -1660,50 +1727,63 @@ export default function FastPayApp() {
             )}
           </div>
 
-          {/* Referral Rewards Explanation Banner */}
-          <div className="glass-panel" style={{ padding: '20px', background: 'linear-gradient(135deg, rgba(108, 92, 231, 0.15) 0%, rgba(0, 206, 201, 0.1) 100%)', border: '1px solid rgba(108, 92, 231, 0.25)', marginTop: '10px' }}>
+          {/* Download App Card */}
+          <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '10px', border: '1px solid var(--accent-secondary)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '1.25rem' }}>📱</span>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0 }} className="gradient-text">Download the App</h3>
+            </div>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: '1.4', margin: 0 }}>
+              Download the latest FastPay application directly to your device for a faster and better experience.
+            </p>
+            <button
+              onClick={() => {
+                if (apkDownloadUrl) {
+                  window.open(apkDownloadUrl, '_blank');
+                } else {
+                  alert('App download URL is currently not configured by the admin.');
+                }
+              }}
+              className="gradient-btn"
+              style={{ width: '100%', padding: '12px', borderRadius: '8px', fontSize: '0.9rem', fontWeight: 700 }}
+            >
+              Download Now
+            </button>
+          </div>
+
+          {/* Referral Rewards Explanation Cards */}
+          <div style={{ marginTop: '20px' }}>
             <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '12px' }} className="gradient-text">FastPay Referral Reward Program</h3>
-            <p style={{ fontSize: '0.85rem', color: 'var(--text-primary)', marginBottom: '16px', lineHeight: '1.4' }}>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '14px', lineHeight: '1.4' }}>
               Welcome to the FastPay high-yield network. Share your secure invitation code to build your two-tier passive yield portfolio:
             </p>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '0.85rem' }}>
-              <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
-                <span style={{ fontSize: '1.25rem', lineHeight: '1' }}>🎁</span>
-                <div>
-                  <strong style={{ color: 'var(--text-primary)' }}>New User Signup Bonus:</strong>
-                  <div style={{ color: 'var(--text-secondary)', marginTop: '2px' }}>
-                    Every user gets an immediate <strong style={{ color: 'var(--success)' }}>₹100.00 welcome bonus</strong> upon first-time registration.
-                  </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {/* Level 1 Reward */}
+              <div className="glass-panel" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--accent-secondary)' }}>LEVEL A (DIRECT REFERRAL)</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Invite Reward:</span>
+                  <span style={{ fontWeight: 600, color: 'var(--success)' }}>₹50.00</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Scheme Commission:</span>
+                  <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>0.30%</span>
                 </div>
               </div>
 
-              <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', borderTop: '1px solid var(--glass-border)', paddingTop: '10px' }}>
-                <span style={{ fontSize: '1.25rem', lineHeight: '1' }}>👥</span>
-                <div>
-                  <strong style={{ color: 'var(--text-primary)' }}>Direct Referral Invite Bonus:</strong>
-                  <div style={{ color: 'var(--text-secondary)', marginTop: '2px' }}>
-                    When a new user signs up using your referral code:
-                    <ul style={{ paddingLeft: '20px', marginTop: '4px', listStyleType: 'disc' }}>
-                      <li>They get the starting welcome balance of <strong style={{ color: 'var(--success)' }}>₹100.00</strong>.</li>
-                      <li>You get credited <strong style={{ color: 'var(--success)' }}>₹50.00</strong> instantly in your wallet!</li>
-                    </ul>
-                  </div>
+              {/* Level 2 Reward */}
+              <div className="glass-panel" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--accent-secondary)' }}>LEVEL B (INDIRECT REFERRAL)</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Scheme Commission:</span>
+                  <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>0.15%</span>
                 </div>
               </div>
 
-              <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', borderTop: '1px solid var(--glass-border)', paddingTop: '10px' }}>
-                <span style={{ fontSize: '1.25rem', lineHeight: '1' }}>📈</span>
-                <div>
-                  <strong style={{ color: 'var(--text-primary)' }}>2-Tier Investment Commissions:</strong>
-                  <div style={{ color: 'var(--text-secondary)', marginTop: '2px' }}>
-                    Earn passive commissions whenever members of your network subscribe to schemes:
-                    <ul style={{ paddingLeft: '20px', marginTop: '4px', listStyleType: 'disc' }}>
-                      <li><strong style={{ color: 'var(--text-primary)' }}>Level A (Direct):</strong> Get <strong style={{ color: 'var(--accent-secondary)' }}>0.30% commission</strong> of their scheme price.</li>
-                      <li><strong style={{ color: 'var(--text-primary)' }}>Level B (Indirect):</strong> Get <strong style={{ color: 'var(--accent-secondary)' }}>0.15% commission</strong> of their scheme price.</li>
-                    </ul>
-                  </div>
-                </div>
+              {/* Info Card */}
+              <div className="glass-panel" style={{ padding: '16px', fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+                💡 <strong>Important Info:</strong> Earn passive commissions instantly whenever members of your network subscribe to schemes. Commissions and referral bonuses are credited directly to your wallet available balance.
               </div>
             </div>
           </div>
@@ -2220,43 +2300,643 @@ export default function FastPayApp() {
           </div>
 
           {/* Navigation Tabs (Screenshot Style - Light Version) */}
-          <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px', borderBottom: '1px solid var(--glass-border)' }}>
-            {[
-              { id: 'overview', label: 'Platform Overview' },
-              { id: 'users', label: 'User Management' },
-              { id: 'transactions', label: 'Transaction Resolving' },
-              { id: 'schemes', label: 'Investment Schemes' }
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => {
-                  setAdminActiveSubTab(tab.id);
-                  setAdminExpandedUser(null);
-                }}
-                style={{
-                  padding: '10px 18px',
-                  borderRadius: '4px',
-                  background: adminActiveSubTab === tab.id ? 'var(--accent-secondary)' : 'var(--bg-secondary)',
-                  border: '1px solid var(--glass-border)',
-                  color: adminActiveSubTab === tab.id ? '#000' : 'var(--text-secondary)',
-                  fontSize: '0.8rem',
-                  cursor: 'pointer',
-                  fontWeight: 700,
-                  whiteSpace: 'nowrap',
-                  fontFamily: 'monospace'
-                }}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
+          {adminView === 'dashboard' && (
+            <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px', borderBottom: '1px solid var(--glass-border)' }}>
+              {[
+                { id: 'overview', label: 'Platform Overview' },
+                { id: 'users', label: 'User Management' },
+                { id: 'transactions', label: 'Transaction Resolving' },
+                { id: 'schemes', label: 'Investment Schemes' }
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => {
+                    setAdminActiveSubTab(tab.id);
+                    setAdminExpandedUser(null);
+                    setAdminView('dashboard');
+                  }}
+                  style={{
+                    padding: '10px 18px',
+                    borderRadius: '4px',
+                    background: adminActiveSubTab === tab.id ? 'var(--accent-secondary)' : 'var(--bg-secondary)',
+                    border: '1px solid var(--glass-border)',
+                    color: adminActiveSubTab === tab.id ? '#000' : 'var(--text-secondary)',
+                    fontSize: '0.8rem',
+                    cursor: 'pointer',
+                    fontWeight: 700,
+                    whiteSpace: 'nowrap',
+                    fontFamily: 'monospace'
+                  }}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Dedicated Sub-Page: User Profile */}
+          {adminView === 'user-profile' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--glass-border)', paddingBottom: '10px' }}>
+                <h3 style={{ fontSize: '1.2rem', fontWeight: 700 }} className="gradient-text">👤 User Profile Dashboard</h3>
+                <button
+                  onClick={() => { setAdminView('dashboard'); setAdminUserProfileData(null); }}
+                  className="form-input"
+                  style={{ width: 'auto', background: 'var(--bg-secondary)', padding: '6px 14px', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer', fontWeight: 600 }}
+                >
+                  ← Back to Users
+                </button>
+              </div>
+
+              {adminUserProfileLoading || !adminUserProfileData ? (
+                <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>
+                  Loading user profile analytics...
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                  {/* Basic Details & Wallet Cards */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                    {/* Basic Details Card */}
+                    <div className="glass-panel" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--accent-secondary)', fontWeight: 700 }}>📋 BASIC INFORMATION</span>
+                      <div style={{ fontSize: '0.85rem', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-secondary)' }}>User ID:</span><strong>{adminUserProfileData.basic.id}</strong></div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-secondary)' }}>Username:</span><strong>{adminUserProfileData.basic.username}</strong></div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-secondary)' }}>Phone:</span><strong>{adminUserProfileData.basic.phone}</strong></div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-secondary)' }}>Email:</span><strong>{adminUserProfileData.basic.email || 'N/A'}</strong></div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-secondary)' }}>Referral Code:</span><strong>{adminUserProfileData.basic.referralCode}</strong></div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-secondary)' }}>Referred By:</span><strong>{adminUserProfileData.basic.referredBy}</strong></div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-secondary)' }}>Joined Date:</span><strong>{new Date(adminUserProfileData.basic.createdAt).toLocaleString()}</strong></div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-secondary)' }}>Status:</span>
+                          <span style={{
+                            color: adminUserProfileData.basic.status === 'Active' ? 'var(--success)' : 'var(--error)',
+                            fontWeight: 700
+                          }}>{adminUserProfileData.basic.status}</span>
+                        </div>
+                      </div>
+                      
+                      {/* Action buttons inside Profile */}
+                      <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+                        <button
+                          onClick={async () => {
+                            const action = adminUserProfileData.basic.status === 'Suspended' ? 'unsuspendUser' : 'suspendUser';
+                            await handleAdminAction(action, { userId: adminUserProfileData.basic.id });
+                            fetchUserProfileDetails(adminUserProfileData.basic.id);
+                            fetchAdminData();
+                          }}
+                          className="form-input"
+                          style={{
+                            flex: 1,
+                            fontSize: '0.75rem',
+                            fontWeight: 700,
+                            padding: '8px',
+                            background: adminUserProfileData.basic.status === 'Suspended' ? 'rgba(0,184,148,0.15)' : 'rgba(255,118,117,0.15)',
+                            color: adminUserProfileData.basic.status === 'Suspended' ? 'var(--success)' : 'var(--error)',
+                            border: 'none',
+                            cursor: 'pointer',
+                            borderRadius: '6px'
+                          }}
+                        >
+                          {adminUserProfileData.basic.status === 'Suspended' ? '✅ Reactivate Account' : '🚫 Suspend Account'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Wallet Stats Card */}
+                    <div className="glass-panel" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--success)', fontWeight: 700 }}>💰 WALLET & FINANCIAL STATS</span>
+                      <div style={{ fontSize: '0.85rem', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-secondary)' }}>Wallet Balance:</span><strong style={{ color: 'var(--success)' }}>₹{adminUserProfileData.wallet.balance.toFixed(2)}</strong></div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-secondary)' }}>Total Deposit:</span><strong>₹{adminUserProfileData.wallet.totalDeposit.toFixed(2)}</strong></div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-secondary)' }}>Total Withdrawal:</span><strong>₹{adminUserProfileData.wallet.totalWithdrawal.toFixed(2)}</strong></div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-secondary)' }}>Total Profit:</span><strong>₹{adminUserProfileData.wallet.totalProfit.toFixed(2)}</strong></div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-secondary)' }}>Active Investment:</span><strong>₹{adminUserProfileData.wallet.activeInvestment.toFixed(2)}</strong></div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-secondary)' }}>Referral Income:</span><strong>₹{adminUserProfileData.wallet.referralIncome.toFixed(2)}</strong></div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-secondary)' }}>Pending Deposit:</span><strong>₹{adminUserProfileData.wallet.pendingIncome.toFixed(2)}</strong></div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Bank Details & Orders Summary */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                    <div className="glass-panel" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <span style={{ fontSize: '0.75rem', color: '#0984e3', fontWeight: 700 }}>🏦 BANK INFORMATION</span>
+                      {adminUserProfileData.bankDetails ? (
+                        <div style={{ fontSize: '0.85rem', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-secondary)' }}>Account Number:</span><strong>{adminUserProfileData.bankDetails.accountNumber}</strong></div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-secondary)' }}>Holder Name:</span><strong>{adminUserProfileData.bankDetails.accountName}</strong></div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-secondary)' }}>IFSC Code:</span><strong>{adminUserProfileData.bankDetails.ifsc}</strong></div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-secondary)' }}>UPI ID:</span><strong>{adminUserProfileData.bankDetails.upiId || 'N/A'}</strong></div>
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '10px' }}>
+                          No bank account linked yet.
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="glass-panel" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <span style={{ fontSize: '0.75rem', color: '#ff7675', fontWeight: 700 }}>🛒 ORDERS & PLANS STATE</span>
+                      <div style={{ fontSize: '0.85rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                        <div><span style={{ color: 'var(--text-secondary)' }}>Total:</span> <strong>{adminUserProfileData.ordersCount.total}</strong></div>
+                        <div><span style={{ color: 'var(--text-secondary)' }}>Active:</span> <strong>{adminUserProfileData.ordersCount.active}</strong></div>
+                        <div><span style={{ color: 'var(--text-secondary)' }}>Pending:</span> <strong>{adminUserProfileData.ordersCount.pending}</strong></div>
+                        <div><span style={{ color: 'var(--text-secondary)' }}>Completed:</span> <strong>{adminUserProfileData.ordersCount.completed}</strong></div>
+                        <div><span style={{ color: 'var(--text-secondary)' }}>Cancelled:</span> <strong>{adminUserProfileData.ordersCount.cancelled}</strong></div>
+                        <div><span style={{ color: 'var(--text-secondary)' }}>Failed:</span> <strong>{adminUserProfileData.ordersCount.failed}</strong></div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Investment History */}
+                  <div className="glass-panel" style={{ padding: '16px' }}>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--accent-secondary)', fontWeight: 700, display: 'block', marginBottom: '10px' }}>📈 SCHEME SUBSCRIPTION HISTORY</span>
+                    {adminUserProfileData.investments.length === 0 ? (
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '10px' }}>No subscriptions found.</div>
+                    ) : (
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
+                          <thead>
+                            <tr style={{ borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)' }}>
+                              <th style={{ padding: '6px' }}>Scheme Name</th>
+                              <th style={{ padding: '6px' }}>Amount</th>
+                              <th style={{ padding: '6px' }}>Daily Payout</th>
+                              <th style={{ padding: '6px' }}>Days Left</th>
+                              <th style={{ padding: '6px' }}>Status</th>
+                              <th style={{ padding: '6px' }}>Purchased At</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {adminUserProfileData.investments.map((inv) => (
+                              <tr key={inv.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                                <td style={{ padding: '8px 6px', fontWeight: 600 }}>{inv.name}</td>
+                                <td style={{ padding: '8px 6px' }}>₹{inv.price.toFixed(2)}</td>
+                                <td style={{ padding: '8px 6px', color: 'var(--success)' }}>₹{inv.daily_income.toFixed(2)}</td>
+                                <td style={{ padding: '8px 6px' }}>{inv.days_remaining} days</td>
+                                <td style={{ padding: '8px 6px' }}>
+                                  <span style={{
+                                    color: inv.status === 'active' ? 'var(--success)' : inv.status === 'pending' ? 'var(--gold)' : 'var(--text-secondary)',
+                                    textTransform: 'capitalize',
+                                    fontWeight: 700
+                                  }}>{inv.status}</span>
+                                </td>
+                                <td style={{ padding: '8px 6px' }}>{new Date(inv.created_at).toLocaleDateString()}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Deposits & Withdrawals Tables */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                    {/* Deposits List */}
+                    <div className="glass-panel" style={{ padding: '16px' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--success)', fontWeight: 700, display: 'block', marginBottom: '10px' }}>💸 DEPOSIT HISTORY</span>
+                      {adminUserProfileData.deposits.length === 0 ? (
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '10px' }}>No deposits logged.</div>
+                      ) : (
+                        <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem', textAlign: 'left' }}>
+                            <thead>
+                              <tr style={{ borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)' }}>
+                                <th style={{ padding: '4px' }}>Amount</th>
+                                <th style={{ padding: '4px' }}>UTR</th>
+                                <th style={{ padding: '4px' }}>Status</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {adminUserProfileData.deposits.map((d) => (
+                                <tr key={d.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                                  <td style={{ padding: '6px 4px' }}>₹{d.amount.toFixed(2)}</td>
+                                  <td style={{ padding: '6px 4px', fontFamily: 'monospace' }}>{d.utr || 'N/A'}</td>
+                                  <td style={{ padding: '6px 4px' }}>
+                                    <span style={{
+                                      color: d.status === 'completed' ? 'var(--success)' : d.status === 'pending' ? 'var(--gold)' : 'var(--error)',
+                                      fontWeight: 700
+                                    }}>{d.status}</span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Withdrawals List */}
+                    <div className="glass-panel" style={{ padding: '16px' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--error)', fontWeight: 700, display: 'block', marginBottom: '10px' }}>💸 WITHDRAWAL HISTORY</span>
+                      {adminUserProfileData.withdrawals.length === 0 ? (
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '10px' }}>No withdrawals logged.</div>
+                      ) : (
+                        <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem', textAlign: 'left' }}>
+                            <thead>
+                              <tr style={{ borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)' }}>
+                                <th style={{ padding: '4px' }}>Amount</th>
+                                <th style={{ padding: '4px' }}>Date</th>
+                                <th style={{ padding: '4px' }}>Status</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {adminUserProfileData.withdrawals.map((w) => (
+                                <tr key={w.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                                  <td style={{ padding: '6px 4px' }}>₹{Math.abs(w.amount).toFixed(2)}</td>
+                                  <td style={{ padding: '6px 4px' }}>{new Date(w.created_at).toLocaleDateString()}</td>
+                                  <td style={{ padding: '6px 4px' }}>
+                                    <span style={{
+                                      color: w.status === 'completed' ? 'var(--success)' : w.status === 'pending' ? 'var(--gold)' : 'var(--error)',
+                                      fontWeight: 700
+                                    }}>{w.status}</span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Referral Tree & Activity Logs */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                    {/* Referrals List */}
+                    <div className="glass-panel" style={{ padding: '16px' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--accent-secondary)', fontWeight: 700, display: 'block', marginBottom: '10px' }}>👥 REFERRAL TREE ({adminUserProfileData.referrals.count} Invited)</span>
+                      {adminUserProfileData.referrals.list.length === 0 ? (
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '10px' }}>No direct referrals found.</div>
+                      ) : (
+                        <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            {adminUserProfileData.referrals.list.map((ref, idx) => (
+                              <div key={idx} style={{ padding: '6px 10px', background: 'rgba(255,255,255,0.02)', borderRadius: '4px', border: '1px solid var(--glass-border)', fontSize: '0.75rem', display: 'flex', justifyContent: 'space-between' }}>
+                                <div>
+                                  <strong>{ref.username}</strong>
+                                  <span style={{ color: 'var(--text-secondary)', marginLeft: '6px' }}>({ref.phone})</span>
+                                </div>
+                                <span style={{ color: 'var(--success)', fontWeight: 600 }}>₹{ref.balance.toFixed(2)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Activity Logs */}
+                    <div className="glass-panel" style={{ padding: '16px' }}>
+                      <span style={{ fontSize: '0.75rem', color: '#ffeaa7', fontWeight: 700, display: 'block', marginBottom: '10px' }}>📜 USER ACTIVITY LOGS</span>
+                      <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {adminUserProfileData.activityLogs.map((log, idx) => (
+                          <div key={idx} style={{ fontSize: '0.75rem', display: 'flex', flexDirection: 'column', gap: '2px', borderBottom: '1px solid rgba(255,255,255,0.03)', paddingBottom: '6px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <strong style={{ color: 'var(--accent-secondary)' }}>{log.type}</strong>
+                              <span style={{ color: 'var(--text-secondary)', fontSize: '0.65rem' }}>{new Date(log.date).toLocaleString()}</span>
+                            </div>
+                            <div style={{ color: 'var(--text-primary)' }}>{log.desc}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Dedicated Sub-Page: Combined Balance Ledger */}
+          {adminView === 'combined-balance' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--glass-border)', paddingBottom: '10px' }}>
+                <h3 style={{ fontSize: '1.2rem', fontWeight: 700 }} className="gradient-text">💰 Combined User Balances Ledger</h3>
+                <button
+                  onClick={() => setAdminView('dashboard')}
+                  className="form-input"
+                  style={{ width: 'auto', background: 'var(--bg-secondary)', padding: '6px 14px', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer', fontWeight: 600 }}
+                >
+                  ← Back to Dashboard
+                </button>
+              </div>
+
+              {/* Combined Top Header Stat */}
+              <div className="glass-panel" style={{ padding: '20px', background: 'linear-gradient(135deg, rgba(0, 184, 148, 0.15) 0%, rgba(9, 132, 227, 0.1) 100%)', border: '1px solid rgba(0, 184, 148, 0.25)', textAlign: 'center' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', letterSpacing: '1px' }}>TOTAL PLATFORM LIABILITIES (COMBINED CURRENT BALANCE)</span>
+                <div style={{ fontSize: '2.2rem', fontWeight: 800, color: 'var(--success)', fontFamily: 'monospace', margin: '8px 0' }}>
+                  ₹{adminUsers.reduce((sum, u) => sum + u.wallet_balance, 0).toFixed(2)}
+                </div>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Combined balance of all registered system clients</span>
+              </div>
+
+              {/* Search, Sort, Filter inputs */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+                <input
+                  type="text"
+                  placeholder="Search user..."
+                  className="form-input"
+                  value={cbSearch}
+                  onChange={(e) => { setCbSearch(e.target.value); setCbPage(1); }}
+                  style={{ fontSize: '0.85rem' }}
+                />
+                <select
+                  className="form-input"
+                  value={cbFilter}
+                  onChange={(e) => { setCbFilter(e.target.value); setCbPage(1); }}
+                  style={{ fontSize: '0.85rem', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+                >
+                  <option value="all">📁 All User States</option>
+                  <option value="active">🟢 Active Users Only</option>
+                  <option value="suspended">🔴 Suspended Users Only</option>
+                </select>
+                <select
+                  className="form-input"
+                  value={cbSort}
+                  onChange={(e) => { setCbSort(e.target.value); setCbPage(1); }}
+                  style={{ fontSize: '0.85rem', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+                >
+                  <option value="balance-desc">💰 Balance: High to Low</option>
+                  <option value="balance-asc">💰 Balance: Low to High</option>
+                  <option value="username-asc">🔤 Username: A to Z</option>
+                  <option value="deposit-desc">💳 Deposits: High to Low</option>
+                </select>
+              </div>
+
+              {/* Data Table */}
+              <div className="glass-panel" style={{ padding: '16px' }}>
+                {(() => {
+                  let list = adminUsers.filter(u => {
+                    const matchesSearch = u.username.toLowerCase().includes(cbSearch.toLowerCase()) || u.phone.includes(cbSearch);
+                    const matchesFilter = cbFilter === 'all' ? true : cbFilter === 'suspended' ? u.is_suspended : !u.is_suspended;
+                    return matchesSearch && matchesFilter;
+                  });
+
+                  // Sorting
+                  list = list.sort((a, b) => {
+                    if (cbSort === 'balance-desc') return b.wallet_balance - a.wallet_balance;
+                    if (cbSort === 'balance-asc') return a.wallet_balance - b.wallet_balance;
+                    if (cbSort === 'username-asc') return a.username.localeCompare(b.username);
+                    if (cbSort === 'deposit-desc') return b.stats.depositTotal - a.stats.depositTotal;
+                    return 0;
+                  });
+
+                  // Pagination calculation
+                  const pageSize = 10;
+                  const totalPages = Math.ceil(list.length / pageSize) || 1;
+                  const paginatedList = list.slice((cbPage - 1) * pageSize, cbPage * pageSize);
+
+                  if (list.length === 0) {
+                    return <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-secondary)' }}>No matching users found.</div>;
+                  }
+
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
+                          <thead>
+                            <tr style={{ borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)' }}>
+                              <th style={{ padding: '8px' }}>User Details</th>
+                              <th style={{ padding: '8px' }}>Deposits</th>
+                              <th style={{ padding: '8px' }}>Withdrawals</th>
+                              <th style={{ padding: '8px' }}>Total Profits</th>
+                              <th style={{ padding: '8px', textAlign: 'right' }}>Current Balance</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {paginatedList.map((u) => (
+                              <tr
+                                key={u.id}
+                                onClick={() => {
+                                  setSelectedAdminUserId(u.id);
+                                  fetchUserProfileDetails(u.id);
+                                  setAdminView('user-profile');
+                                }}
+                                className="interactive-card"
+                                style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', cursor: 'pointer' }}
+                              >
+                                <td style={{ padding: '10px 8px' }}>
+                                  <div style={{ fontWeight: 700 }}>{u.username}</div>
+                                  <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>ID: {u.id}</span>
+                                </td>
+                                <td style={{ padding: '10px 8px' }}>₹{u.stats.depositTotal.toFixed(2)}</td>
+                                <td style={{ padding: '10px 8px' }}>₹{u.stats.withdrawalTotal.toFixed(2)}</td>
+                                <td style={{ padding: '10px 8px', color: 'var(--success)' }}>₹{u.stats.commissionTotal.toFixed(2)}</td>
+                                <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 700, color: 'var(--success)' }}>
+                                  ₹{u.wallet_balance.toFixed(2)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Pagination Controls */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--glass-border)', paddingTop: '10px', fontSize: '0.8rem' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Page {cbPage} of {totalPages} ({list.length} total users)</span>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button
+                            disabled={cbPage === 1}
+                            onClick={() => setCbPage(prev => Math.max(1, prev - 1))}
+                            className="form-input"
+                            style={{ width: 'auto', padding: '4px 10px', background: cbPage === 1 ? 'transparent' : 'var(--bg-secondary)', cursor: cbPage === 1 ? 'default' : 'pointer', opacity: cbPage === 1 ? 0.4 : 1 }}
+                          >
+                            Prev
+                          </button>
+                          <button
+                            disabled={cbPage === totalPages}
+                            onClick={() => setCbPage(prev => Math.min(totalPages, prev + 1))}
+                            className="form-input"
+                            style={{ width: 'auto', padding: '4px 10px', background: cbPage === totalPages ? 'transparent' : 'var(--bg-secondary)', cursor: cbPage === totalPages ? 'default' : 'pointer', opacity: cbPage === totalPages ? 0.4 : 1 }}
+                          >
+                            Next
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+
+          {/* Dedicated Sub-Page: Active Investment Value */}
+          {adminView === 'active-investments' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--glass-border)', paddingBottom: '10px' }}>
+                <h3 style={{ fontSize: '1.2rem', fontWeight: 700 }} className="gradient-text">📈 Active Investment Channels</h3>
+                <button
+                  onClick={() => setAdminView('dashboard')}
+                  className="form-input"
+                  style={{ width: 'auto', background: 'var(--bg-secondary)', padding: '6px 14px', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer', fontWeight: 600 }}
+                >
+                  ← Back to Dashboard
+                </button>
+              </div>
+
+              {/* active investments header card */}
+              {(() => {
+                const activeOrders = adminOrders.filter(o => o.status === 'active' && o.days_remaining > 0);
+                const totalActiveValue = activeOrders.reduce((sum, o) => sum + o.price, 0);
+                const activeUsersSet = new Set(activeOrders.map(o => o.user_id));
+
+                return (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                    <div className="glass-panel" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>TOTAL ACTIVE VALUE</span>
+                      <strong style={{ fontSize: '1.4rem', color: 'var(--gold)', fontFamily: 'monospace' }}>₹{totalActiveValue.toFixed(2)}</strong>
+                    </div>
+                    <div className="glass-panel" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>TOTAL ACTIVE CLIENTS</span>
+                      <strong style={{ fontSize: '1.4rem', color: 'var(--success)', fontFamily: 'monospace' }}>{activeUsersSet.size} Users</strong>
+                    </div>
+                    <div className="glass-panel" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>TOTAL ACTIVE PLANS</span>
+                      <strong style={{ fontSize: '1.4rem', color: '#6c5ce7', fontFamily: 'monospace' }}>{activeOrders.length} Plans</strong>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Search, Filter, Sort inputs */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+                <input
+                  type="text"
+                  placeholder="Search user..."
+                  className="form-input"
+                  value={aiSearch}
+                  onChange={(e) => { setAiSearch(e.target.value); setAiPage(1); }}
+                  style={{ fontSize: '0.85rem' }}
+                />
+                <select
+                  className="form-input"
+                  value={aiFilter}
+                  onChange={(e) => { setAiFilter(e.target.value); setAiPage(1); }}
+                  style={{ fontSize: '0.85rem', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+                >
+                  <option value="all">📁 All Active Schemes</option>
+                  <option value="5000">⚡ ₹5,000 Schemes</option>
+                  <option value="10000">💎 ₹10,000 Schemes</option>
+                </select>
+                <select
+                  className="form-input"
+                  value={aiSort}
+                  onChange={(e) => { setAiSort(e.target.value); setAiPage(1); }}
+                  style={{ fontSize: '0.85rem', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+                >
+                  <option value="amount-desc">💰 Investment: High to Low</option>
+                  <option value="days-asc">⏳ Days Remaining: Low to High</option>
+                  <option value="date-desc">📅 Purchase Date: Newest First</option>
+                </select>
+              </div>
+
+              {/* Data Table */}
+              <div className="glass-panel" style={{ padding: '16px' }}>
+                {(() => {
+                  let list = adminOrders.filter(o => {
+                    const isActive = o.status === 'active' && o.days_remaining > 0;
+                    const matchesSearch = o.user_name.toLowerCase().includes(aiSearch.toLowerCase()) || o.user_phone.includes(aiSearch);
+                    const matchesFilter = aiFilter === 'all' ? true : o.price.toString() === aiFilter;
+                    return isActive && matchesSearch && matchesFilter;
+                  });
+
+                  // Sorting
+                  list = list.sort((a, b) => {
+                    if (aiSort === 'amount-desc') return b.price - a.price;
+                    if (aiSort === 'days-asc') return a.days_remaining - b.days_remaining;
+                    if (aiSort === 'date-desc') return new Date(b.created_at) - new Date(a.created_at);
+                    return 0;
+                  });
+
+                  // Pagination calculation
+                  const pageSize = 10;
+                  const totalPages = Math.ceil(list.length / pageSize) || 1;
+                  const paginatedList = list.slice((aiPage - 1) * pageSize, aiPage * pageSize);
+
+                  if (list.length === 0) {
+                    return <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-secondary)' }}>No matching active investments found.</div>;
+                  }
+
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
+                          <thead>
+                            <tr style={{ borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)' }}>
+                              <th style={{ padding: '8px' }}>User Details</th>
+                              <th style={{ padding: '8px' }}>Plan Details</th>
+                              <th style={{ padding: '8px' }}>Amount</th>
+                              <th style={{ padding: '8px' }}>Daily return</th>
+                              <th style={{ padding: '8px' }}>Days Remaining</th>
+                              <th style={{ padding: '8px', textAlign: 'right' }}>Purchase Date</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {paginatedList.map((o) => (
+                              <tr
+                                key={o.id}
+                                onClick={() => {
+                                  setSelectedAdminUserId(o.user_id);
+                                  fetchUserProfileDetails(o.user_id);
+                                  setAdminView('user-profile');
+                                }}
+                                className="interactive-card"
+                                style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', cursor: 'pointer' }}
+                              >
+                                <td style={{ padding: '10px 8px' }}>
+                                  <div style={{ fontWeight: 700 }}>{o.user_name}</div>
+                                  <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>{o.user_phone}</span>
+                                </td>
+                                <td style={{ padding: '10px 8px' }}>{o.scheme_name}</td>
+                                <td style={{ padding: '10px 8px', fontWeight: 600 }}>₹{o.price.toFixed(2)}</td>
+                                <td style={{ padding: '10px 8px', color: 'var(--success)' }}>₹{o.daily_income.toFixed(2)}</td>
+                                <td style={{ padding: '10px 8px' }}>{o.days_remaining} days</td>
+                                <td style={{ padding: '10px 8px', textAlign: 'right' }}>
+                                  {new Date(o.created_at).toLocaleDateString()}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Pagination Controls */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--glass-border)', paddingTop: '10px', fontSize: '0.8rem' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Page {aiPage} of {totalPages} ({list.length} active plans)</span>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button
+                            disabled={aiPage === 1}
+                            onClick={() => setAiPage(prev => Math.max(1, prev - 1))}
+                            className="form-input"
+                            style={{ width: 'auto', padding: '4px 10px', background: aiPage === 1 ? 'transparent' : 'var(--bg-secondary)', cursor: aiPage === 1 ? 'default' : 'pointer', opacity: aiPage === 1 ? 0.4 : 1 }}
+                          >
+                            Prev
+                          </button>
+                          <button
+                            disabled={aiPage === totalPages}
+                            onClick={() => setAiPage(prev => Math.min(totalPages, prev + 1))}
+                            className="form-input"
+                            style={{ width: 'auto', padding: '4px 10px', background: aiPage === totalPages ? 'transparent' : 'var(--bg-secondary)', cursor: aiPage === totalPages ? 'default' : 'pointer', opacity: aiPage === totalPages ? 0.4 : 1 }}
+                          >
+                            Next
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
 
           {/* Section: Platform Overview (Screenshot Style - Light Version) */}
-          {adminActiveSubTab === 'overview' && (
+          {adminActiveSubTab === 'overview' && adminView === 'dashboard' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               {/* Stats cards grid */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
-                <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', padding: '16px', borderRadius: '6px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '120px' }}>
+                <div 
+                  onClick={() => { setAdminActiveSubTab('users'); setAdminView('dashboard'); }}
+                  className="glass-panel interactive-card"
+                  style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', padding: '16px', borderRadius: '6px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '120px', cursor: 'pointer' }}
+                >
                   <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>REGISTERED ACCOUNTS</span>
                   <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'monospace', margin: '8px 0' }}>
                     {adminUsers.length}
@@ -2267,7 +2947,11 @@ export default function FastPayApp() {
                   </div>
                 </div>
 
-                <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', padding: '16px', borderRadius: '6px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '120px' }}>
+                <div 
+                  onClick={() => { setCbPage(1); setCbSearch(''); setCbFilter('all'); setAdminView('combined-balance'); }}
+                  className="glass-panel interactive-card"
+                  style={{ background: 'var(--bg-secondary)', border: '1px solid rgba(0, 184, 148, 0.4)', padding: '16px', borderRadius: '6px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '120px', cursor: 'pointer' }}
+                >
                   <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>COMBINED USER BALANCES</span>
                   <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'monospace', margin: '8px 0' }}>
                     ₹{adminUsers.reduce((sum, u) => sum + u.wallet_balance, 0).toFixed(2)}
@@ -2278,7 +2962,11 @@ export default function FastPayApp() {
                   </div>
                 </div>
 
-                <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', padding: '16px', borderRadius: '6px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '120px' }}>
+                <div 
+                  onClick={() => { setAiPage(1); setAiSearch(''); setAiFilter('all'); setAdminView('active-investments'); }}
+                  className="glass-panel interactive-card"
+                  style={{ background: 'var(--bg-secondary)', border: '1px solid rgba(253, 203, 110, 0.4)', padding: '16px', borderRadius: '6px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '120px', cursor: 'pointer' }}
+                >
                   <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>ACTIVE INVESTMENT VALUE</span>
                   <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'monospace', margin: '8px 0' }}>
                     ₹{adminOrders.reduce((sum, o) => sum + (o.status === 'active' && o.days_remaining > 0 ? o.price : 0), 0).toFixed(2)}
@@ -2318,14 +3006,31 @@ export default function FastPayApp() {
                 </div>
               </div>
 
-              {/* Administrative Protocols Footer Box */}
-              <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', padding: '16px', borderRadius: '6px', display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', fontWeight: 700, color: '#6c5ce7', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  🛡️ Administrative Protocols
+              {/* APK Settings Config Panel (Replaces Administrative Protocols) */}
+              <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', padding: '16px', borderRadius: '6px', display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--accent-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  📱 App Download Link Configuration
                 </div>
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
-                  This dashboard connects directly to the server's local SQLite database. System actions such as balance adjustments, deposit completions, and withdrawal resolutions take immediate database effect and trigger appropriate ledger entries. Handle user records with high security diligence.
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: '1.4', margin: 0 }}>
+                  Specify the APK download URL link. This URL will be accessed by users when clicking "Download Now" in the Team section.
                 </p>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input
+                    type="text"
+                    placeholder="e.g. https://fastpay.app/fastpay.apk"
+                    className="form-input"
+                    value={newApkDownloadUrl}
+                    onChange={(e) => setNewApkDownloadUrl(e.target.value)}
+                    style={{ flex: 1, fontSize: '0.8rem' }}
+                  />
+                  <button
+                    onClick={handleSaveApkUrl}
+                    className="gradient-btn"
+                    style={{ width: 'auto', padding: '10px 16px', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 700 }}
+                  >
+                    Save URL
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -2746,241 +3451,135 @@ export default function FastPayApp() {
           )}
 
           {/* Section: Users list */}
-          {adminActiveSubTab === 'users' && (
+          {adminActiveSubTab === 'users' && adminView === 'dashboard' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)' }}>Registered Users</h3>
+
+              {/* Users search, filter, and sort bar */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+                <input
+                  type="text"
+                  placeholder="Search user..."
+                  className="form-input"
+                  value={userSearch}
+                  onChange={(e) => { setUserSearch(e.target.value); setUserPage(1); }}
+                  style={{ fontSize: '0.85rem' }}
+                />
+                <select
+                  className="form-input"
+                  value={userFilter}
+                  onChange={(e) => { setUserFilter(e.target.value); setUserPage(1); }}
+                  style={{ fontSize: '0.85rem', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+                >
+                  <option value="all">📁 All User States</option>
+                  <option value="active">🟢 Active Users Only</option>
+                  <option value="suspended">🔴 Suspended Users Only</option>
+                </select>
+                <select
+                  className="form-input"
+                  value={userSort}
+                  onChange={(e) => { setUserSort(e.target.value); setUserPage(1); }}
+                  style={{ fontSize: '0.85rem', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+                >
+                  <option value="date-desc">📅 Registered: Newest First</option>
+                  <option value="date-asc">📅 Registered: Oldest First</option>
+                  <option value="balance-desc">💰 Balance: High to Low</option>
+                  <option value="username-asc">🔤 Username: A to Z</option>
+                </select>
+              </div>
+
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {adminUsers.map((u) => {
-                  const isExpanded = adminExpandedUser === u.id;
+                {(() => {
+                  let list = adminUsers.filter(u => {
+                    const matchesSearch = u.username.toLowerCase().includes(userSearch.toLowerCase()) || u.phone.includes(userSearch);
+                    const matchesFilter = userFilter === 'all' ? true : userFilter === 'suspended' ? u.is_suspended : !u.is_suspended;
+                    return matchesSearch && matchesFilter;
+                  });
+
+                  // Sorting
+                  list = list.sort((a, b) => {
+                    if (userSort === 'date-desc') return new Date(b.created_at) - new Date(a.created_at);
+                    if (userSort === 'date-asc') return new Date(a.created_at) - new Date(b.created_at);
+                    if (userSort === 'balance-desc') return b.wallet_balance - a.wallet_balance;
+                    if (userSort === 'username-asc') return a.username.localeCompare(b.username);
+                    return 0;
+                  });
+
+                  // Pagination calculation
+                  const pageSize = 10;
+                  const totalPages = Math.ceil(list.length / pageSize) || 1;
+                  const paginatedList = list.slice((userPage - 1) * pageSize, userPage * pageSize);
+
+                  if (list.length === 0) {
+                    return <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-secondary)' }}>No matching users found.</div>;
+                  }
+
                   return (
-                    <div
-                      key={u.id}
-                      className="glass-panel interactive-card"
-                      onClick={() => {
-                        if (isExpanded) {
-                          setAdminExpandedUser(null);
-                          setAdminUserSubView(null);
-                        } else {
-                          setAdminExpandedUser(u.id);
-                          setAdminUserSubView(null);
-                        }
-                      }}
-                      style={{
-                        padding: '16px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '12px',
-                        background: 'var(--bg-secondary)',
-                        border: isExpanded ? '1px solid var(--accent-secondary)' : '1px solid var(--glass-border)',
-                        borderRadius: '6px'
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div>
-                          <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                             {u.username}
-                             {u.is_suspended && (
-                               <span style={{ fontSize: '0.6rem', background: 'rgba(255,118,117,0.15)', color: 'var(--error)', padding: '2px 7px', borderRadius: '4px', fontWeight: 700, letterSpacing: '0.5px' }}>SUSPENDED</span>
-                             )}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {paginatedList.map((u) => (
+                        <div
+                          key={u.id}
+                          className="glass-panel interactive-card"
+                          onClick={() => {
+                            setSelectedAdminUserId(u.id);
+                            fetchUserProfileDetails(u.id);
+                            setAdminView('user-profile');
+                          }}
+                          style={{
+                            padding: '16px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '12px',
+                            background: 'var(--bg-secondary)',
+                            border: '1px solid var(--glass-border)',
+                            borderRadius: '6px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                              <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                 {u.username}
+                                 {u.is_suspended && (
+                                   <span style={{ fontSize: '0.6rem', background: 'rgba(255,118,117,0.15)', color: 'var(--error)', padding: '2px 7px', borderRadius: '4px', fontWeight: 700, letterSpacing: '0.5px' }}>SUSPENDED</span>
+                                 )}
+                              </div>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>{u.phone} • {u.email}</div>
+                            </div>
+                            <div style={{ textAlign: 'right' }}>
+                              <div style={{ fontWeight: 700, color: 'var(--success)', fontSize: '1rem' }}>₹{u.wallet_balance.toFixed(2)}</div>
+                              <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '2px' }}>Ref: <strong>{u.referral_code}</strong></div>
+                              {u.support_id && <div style={{ fontSize: '0.65rem', color: '#a29bfe', marginTop: '2px', fontFamily: 'monospace', letterSpacing: '1px' }}>ID: {u.support_id}</div>}
+                            </div>
                           </div>
-                          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>{u.phone} • {u.email}</div>
                         </div>
-                        <div style={{ textAlign: 'right' }}>
-                          <div style={{ fontWeight: 700, color: 'var(--success)', fontSize: '1rem' }}>₹{u.wallet_balance.toFixed(2)}</div>
-                          <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '2px' }}>Ref: <strong>{u.referral_code}</strong></div>
-                          {u.support_id && <div style={{ fontSize: '0.65rem', color: '#a29bfe', marginTop: '2px', fontFamily: 'monospace', letterSpacing: '1px' }}>ID: {u.support_id}</div>}
+                      ))}
+
+                      {/* Pagination Controls */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--glass-border)', paddingTop: '10px', fontSize: '0.8rem' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Page {userPage} of {totalPages} ({list.length} total users)</span>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button
+                            disabled={userPage === 1}
+                            onClick={() => setUserPage(prev => Math.max(1, prev - 1))}
+                            className="form-input"
+                            style={{ width: 'auto', padding: '4px 10px', background: userPage === 1 ? 'transparent' : 'var(--bg-secondary)', cursor: userPage === 1 ? 'default' : 'pointer', opacity: userPage === 1 ? 0.4 : 1 }}
+                          >
+                            Prev
+                          </button>
+                          <button
+                            disabled={userPage === totalPages}
+                            onClick={() => setUserPage(prev => Math.min(totalPages, prev + 1))}
+                            className="form-input"
+                            style={{ width: 'auto', padding: '4px 10px', background: userPage === totalPages ? 'transparent' : 'var(--bg-secondary)', cursor: userPage === totalPages ? 'default' : 'pointer', opacity: userPage === totalPages ? 0.4 : 1 }}
+                          >
+                            Next
+                          </button>
                         </div>
                       </div>
-
-                      {isExpanded && (
-                        <div
-                          className="animate-fade-in"
-                          onClick={(e) => e.stopPropagation()} // Prevent collapse on detail content click
-                          style={{ borderTop: '1px solid var(--glass-border)', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '0.8rem' }}
-                        >
-                          {/* Suspend / Unsuspend Action */}
-                          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                            <button
-                              onClick={() => handleAdminAction(u.is_suspended ? 'unsuspendUser' : 'suspendUser', { userId: u.id })}
-                              style={{
-                                padding: '6px 14px',
-                                borderRadius: '6px',
-                                border: 'none',
-                                cursor: 'pointer',
-                                fontSize: '0.75rem',
-                                fontWeight: 700,
-                                background: u.is_suspended ? 'rgba(0,184,148,0.15)' : 'rgba(255,118,117,0.15)',
-                                color: u.is_suspended ? 'var(--success)' : 'var(--error)'
-                              }}
-                            >
-                              {u.is_suspended ? '✅ Reactivate Account' : '🚫 Suspend Account'}
-                            </button>
-                          </div>
-
-                          {/* Financial Metrics */}
-                          <div>
-                            <div style={{ fontWeight: 600, color: 'var(--accent-secondary)', marginBottom: '8px', fontSize: '0.85rem' }}>Financial Overview (Click a metric to view logs)</div>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px' }}>
-                              <div
-                                onClick={() => setAdminUserSubView(adminUserSubView === 'deposits' ? null : 'deposits')}
-                                style={{ display: 'flex', justifyContent: 'space-between', cursor: 'pointer', padding: '4px 6px', borderRadius: '4px', background: adminUserSubView === 'deposits' ? 'rgba(9, 132, 227, 0.1)' : 'transparent', border: adminUserSubView === 'deposits' ? '1px solid rgba(9, 132, 227, 0.2)' : '1px solid transparent' }}
-                              >
-                                <span style={{ color: 'var(--text-secondary)' }}>Total Deposited:</span>
-                                <strong style={{ color: 'var(--accent-secondary)', textDecoration: 'underline' }}>₹{u.stats.depositTotal.toFixed(2)}</strong>
-                              </div>
-                              <div
-                                onClick={() => setAdminUserSubView(adminUserSubView === 'withdrawals' ? null : 'withdrawals')}
-                                style={{ display: 'flex', justifyContent: 'space-between', cursor: 'pointer', padding: '4px 6px', borderRadius: '4px', background: adminUserSubView === 'withdrawals' ? 'rgba(214, 48, 49, 0.1)' : 'transparent', border: adminUserSubView === 'withdrawals' ? '1px solid rgba(214, 48, 49, 0.2)' : '1px solid transparent' }}
-                              >
-                                <span style={{ color: 'var(--text-secondary)' }}>Total Withdrawn:</span>
-                                <strong style={{ color: 'var(--error)', textDecoration: 'underline' }}>₹{u.stats.withdrawalTotal.toFixed(2)}</strong>
-                              </div>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 6px' }}>
-                                <span style={{ color: 'var(--text-secondary)' }}>Pending Cashout:</span>
-                                <strong style={{ color: 'var(--gold)' }}>₹{u.stats.pendingWithdrawal.toFixed(2)}</strong>
-                              </div>
-                              <div
-                                onClick={() => setAdminUserSubView(adminUserSubView === 'orders' ? null : 'orders')}
-                                style={{ display: 'flex', justifyContent: 'space-between', cursor: 'pointer', padding: '4px 6px', borderRadius: '4px', background: adminUserSubView === 'orders' ? 'rgba(0, 184, 148, 0.1)' : 'transparent', border: adminUserSubView === 'orders' ? '1px solid rgba(0, 184, 148, 0.2)' : '1px solid transparent' }}
-                              >
-                                <span style={{ color: 'var(--text-secondary)' }}>Active Investment:</span>
-                                <strong style={{ color: 'var(--success)', textDecoration: 'underline' }}>₹{u.stats.activeInvestment.toFixed(2)}</strong>
-                              </div>
-                              <div
-                                onClick={() => setAdminUserSubView(adminUserSubView === 'commissions' ? null : 'commissions')}
-                                style={{ display: 'flex', justifyContent: 'space-between', cursor: 'pointer', padding: '4px 6px', borderRadius: '4px', background: adminUserSubView === 'commissions' ? 'rgba(108, 92, 231, 0.1)' : 'transparent', border: adminUserSubView === 'commissions' ? '1px solid rgba(108, 92, 231, 0.2)' : '1px solid transparent' }}
-                              >
-                                <span style={{ color: 'var(--text-secondary)' }}>Referral Commissions:</span>
-                                <strong style={{ color: 'var(--success)', textDecoration: 'underline' }}>₹{u.stats.commissionTotal.toFixed(2)}</strong>
-                              </div>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 6px' }}>
-                                <span style={{ color: 'var(--text-secondary)' }}>Referred By:</span>
-                                <strong>{u.referrerName || 'None'}</strong>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Detailed Logs Subview inside Expanded User */}
-                          {adminUserSubView && (
-                            <div style={{ padding: '12px', background: 'var(--bg-tertiary)', borderRadius: '6px', border: '1px solid var(--glass-border)' }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', borderBottom: '1px solid var(--glass-border)', paddingBottom: '4px' }}>
-                                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--accent-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                  {adminUserSubView === 'deposits' ? 'Deposit Logs' :
-                                    adminUserSubView === 'withdrawals' ? 'Withdrawal Logs' :
-                                      adminUserSubView === 'orders' ? 'Purchased Schemes / Orders' : 'Referral Commission Logs'}
-                                </span>
-                                <button
-                                  onClick={() => setAdminUserSubView(null)}
-                                  style={{ background: 'none', border: 'none', color: 'var(--error)', fontSize: '0.7rem', cursor: 'pointer', fontWeight: 600 }}
-                                >
-                                  Close Detail
-                                </button>
-                              </div>
-
-                              {/* Render matching records */}
-                              {(() => {
-                                if (adminUserSubView === 'deposits') {
-                                  const list = adminTransactions.filter(t => t.user_id === u.id && t.type === 'deposit');
-                                  if (list.length === 0) return <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '8px' }}>No deposit logs found.</div>;
-                                  return (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '180px', overflowY: 'auto' }}>
-                                      {list.map(t => (
-                                        <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', borderBottom: '1px solid var(--glass-border)', paddingBottom: '4px', color: 'var(--text-primary)' }}>
-                                          <span>{new Date(t.created_at).toLocaleDateString()}</span>
-                                          <span style={{ color: t.status === 'completed' ? 'var(--success)' : t.status === 'pending' ? 'var(--gold)' : 'var(--error)', textTransform: 'capitalize', fontWeight: 600 }}>
-                                            {t.status}
-                                          </span>
-                                          <strong>₹{t.amount.toFixed(2)}</strong>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  );
-                                }
-
-                                if (adminUserSubView === 'withdrawals') {
-                                  const list = adminTransactions.filter(t => t.user_id === u.id && t.type === 'withdrawal');
-                                  if (list.length === 0) return <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '8px' }}>No withdrawal logs found.</div>;
-                                  return (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '180px', overflowY: 'auto' }}>
-                                      {list.map(t => (
-                                        <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', borderBottom: '1px solid var(--glass-border)', paddingBottom: '4px', color: 'var(--text-primary)' }}>
-                                          <span>{new Date(t.created_at).toLocaleDateString()}</span>
-                                          <span style={{ color: t.status === 'completed' ? 'var(--success)' : t.status === 'pending' ? 'var(--gold)' : 'var(--error)', textTransform: 'capitalize', fontWeight: 600 }}>
-                                            {t.status}
-                                          </span>
-                                          <strong>₹{Math.abs(t.amount).toFixed(2)}</strong>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  );
-                                }
-
-                                if (adminUserSubView === 'orders') {
-                                  const list = adminOrders.filter(o => o.user_id === u.id);
-                                  if (list.length === 0) return <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '8px' }}>No purchased schemes found.</div>;
-                                  return (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '200px', overflowY: 'auto' }}>
-                                      {list.map(o => (
-                                        <div key={o.id} style={{ display: 'flex', flexDirection: 'column', fontSize: '0.7rem', borderBottom: '1px solid var(--glass-border)', paddingBottom: '6px', gap: '2px', color: 'var(--text-primary)' }}>
-                                          <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600 }}>
-                                            <span style={{ color: 'var(--text-primary)' }}>{o.scheme_name}</span>
-                                            <span style={{ color: 'var(--accent-secondary)' }}>₹{o.price}</span>
-                                          </div>
-                                          <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)', fontSize: '0.65rem' }}>
-                                            <span>Date: {new Date(o.created_at).toLocaleDateString()}</span>
-                                            <span>Status: <strong style={{ color: o.status === 'active' ? 'var(--success)' : o.status === 'pending' ? 'var(--gold)' : o.status === 'error', textTransform: 'capitalize' }}>{o.status}</strong></span>
-                                            <span>Days Left: {o.days_remaining}</span>
-                                          </div>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  );
-                                }
-
-                                if (adminUserSubView === 'commissions') {
-                                  const list = adminTransactions.filter(t => t.user_id === u.id && (t.type === 'referral_commission_l1' || t.type === 'referral_commission_l2'));
-                                  if (list.length === 0) return <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '8px' }}>No commission records found.</div>;
-                                  return (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '180px', overflowY: 'auto' }}>
-                                      {list.map(t => (
-                                        <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', borderBottom: '1px solid var(--glass-border)', paddingBottom: '4px', color: 'var(--text-primary)' }}>
-                                          <span>{new Date(t.created_at).toLocaleDateString()}</span>
-                                          <span style={{ color: 'var(--success)', textTransform: 'uppercase', fontSize: '0.6rem', fontWeight: 700 }}>
-                                            {t.type === 'referral_commission_l1' ? 'L1 Direct' : 'L2 Indirect'}
-                                          </span>
-                                          <strong>₹{t.amount.toFixed(2)}</strong>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  );
-                                }
-
-                                return null;
-                              })()}
-                            </div>
-                          )}
-
-                          {/* Bank details */}
-                          <div style={{ background: 'var(--bg-tertiary)', padding: '10px', borderRadius: '6px', border: '1px solid var(--glass-border)' }}>
-                            <div style={{ fontWeight: 600, color: 'var(--accent-primary)', marginBottom: '6px', fontSize: '0.85rem' }}>Linked Settlement Bank Account</div>
-                            {u.bankDetails ? (
-                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 12px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                                <div>Name: <strong style={{ color: 'var(--text-primary)' }}>{u.bankDetails.accountName}</strong></div>
-                                <div>A/C: <strong style={{ color: 'var(--text-primary)' }}>{u.bankDetails.accountNumber}</strong></div>
-                                <div>IFSC: <strong style={{ color: 'var(--text-primary)' }}>{u.bankDetails.ifsc}</strong></div>
-                                <div>UPI ID: <strong style={{ color: 'var(--text-primary)' }}>{u.bankDetails.upiId}</strong></div>
-                              </div>
-                            ) : (
-                              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontStyle: 'italic' }}>
-                                No bank account linked by this user yet.
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
                     </div>
                   );
-                })}
+                })()}
               </div>
             </div>
           )}

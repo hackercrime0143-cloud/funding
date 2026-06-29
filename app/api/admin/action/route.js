@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
-import { User, Scheme, Transaction, VirtualAccount, Order } from '@/lib/models';
+import { User, Scheme, Transaction, VirtualAccount, Order, Settings } from '@/lib/models';
 import { getSessionFromCookies } from '@/lib/auth';
 
 export async function POST(request) {
@@ -199,6 +199,19 @@ export async function POST(request) {
       }
       await User.updateOne({ _id: userId }, { $set: { is_suspended: false } });
       return NextResponse.json({ success: true, message: `Account of "${target.username}" has been reactivated.` });
+    }
+
+    else if (action === 'saveApkUrl') {
+      const { apkUrl } = payload;
+      if (!apkUrl) {
+        return NextResponse.json({ error: 'APK URL is required.' }, { status: 400 });
+      }
+      await Settings.findOneAndUpdate(
+        { key: 'apk_download_url' },
+        { value: apkUrl.trim() },
+        { upsert: true, new: true }
+      );
+      return NextResponse.json({ success: true, message: 'APK download link updated successfully!' });
     }
 
     return NextResponse.json({ error: 'Invalid admin action.' }, { status: 400 });
