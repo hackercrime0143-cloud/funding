@@ -1,0 +1,3784 @@
+'use client';
+
+import { useState, useEffect, useRef } from 'react';
+import {
+  Home as HomeIcon,
+  TrendingUp,
+  Users,
+  CreditCard,
+  User as UserIcon,
+  Copy,
+  Plus,
+  ArrowUpRight,
+  ArrowDownLeft,
+  LogOut,
+  RefreshCw,
+  AlertCircle,
+  CheckCircle2,
+  Lock,
+  ChevronRight,
+  ChevronDown,
+  ChevronUp,
+  TrendingDown,
+  CheckSquare
+} from 'lucide-react';
+
+export default function FastPayApp() {
+  // App views: 'loading', 'auth', 'app'
+  const [appState, setAppState] = useState('loading');
+  const [activeTab, setActiveTab] = useState('home'); // 'home', 'orders', 'team', 'account', 'me'
+
+  // Auth state
+  const [isLogin, setIsLogin] = useState(true);
+  const [isForgot, setIsForgot] = useState(false);
+  const [user, setUser] = useState(null);
+  const [authError, setAuthError] = useState('');
+
+  // Auth Form States
+  const [username, setUsername] = useState('');
+  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [otp, setOtp] = useState('');
+  const [referralCode, setReferralCode] = useState('');
+
+  // OTP state
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpTimer, setOtpTimer] = useState(0);
+  const [sentOtpCode, setSentOtpCode] = useState(''); // Shown in UI for demonstration
+  const [otpLoading, setOtpLoading] = useState(false);
+
+  // Schemes & Orders Data
+  const [schemes, setSchemes] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [activeOrderDetails, setActiveOrderDetails] = useState(null);
+  const [currentDraftOrderId, setCurrentDraftOrderId] = useState(null);
+  const [ledgerFilter, setLedgerFilter] = useState('all');
+  const [tasksProgress, setTasksProgress] = useState(null);
+  const [activeBannerSlide, setActiveBannerSlide] = useState(0);
+  const [paymentStep, setPaymentStep] = useState(1); // 1 = details, 2 = QR payment
+  const [paymentUtr, setPaymentUtr] = useState('');
+  const [paymentTimer, setPaymentTimer] = useState(900); // 15 minutes countdown
+  const [confirmAccountNumber, setConfirmAccountNumber] = useState('');
+  const [schemeSearchQuery, setSchemeSearchQuery] = useState('');
+  const [selectedHistoryItem, setSelectedHistoryItem] = useState(null);
+  const [paymentScreenshot, setPaymentScreenshot] = useState(null);
+  const [showLevelAMembers, setShowLevelAMembers] = useState(false);
+  const [showLevelBMembers, setShowLevelBMembers] = useState(false);
+  const [showTelegramGate, setShowTelegramGate] = useState(false);
+
+  // Admin Panel States
+  const [adminUsers, setAdminUsers] = useState([]);
+  const [adminTransactions, setAdminTransactions] = useState([]);
+  const [adminOrders, setAdminOrders] = useState([]);
+  const [adminSchemes, setAdminSchemes] = useState([]);
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminActiveSubTab, setAdminActiveSubTab] = useState('overview'); // 'overview', 'users', 'transactions', 'schemes'
+  const [adminTxFilter, setAdminTxFilter] = useState('pending'); // 'pending', 'withdrawals', 'deposits', 'cancelled'
+  const [adminOrderFilter, setAdminOrderFilter] = useState('pending'); // 'pending', 'active', 'cancelled'
+  const [adminSearchQuery, setAdminSearchQuery] = useState('');
+  const [adminExpandedUser, setAdminExpandedUser] = useState(null);
+  const [adminUserSubView, setAdminUserSubView] = useState(null); // 'deposits', 'withdrawals', 'orders', 'commissions', null
+  const [adminExpandedOrderId, setAdminExpandedOrderId] = useState(null);
+
+  // Admin New Scheme Form
+  const [newSchemeName, setNewSchemeName] = useState('');
+  const [newSchemePrice, setNewSchemePrice] = useState('');
+  const [newSchemeRate, setNewSchemeRate] = useState('');
+  const [newSchemeDays, setNewSchemeDays] = useState('');
+  const [newSchemeTotalReturn, setNewSchemeTotalReturn] = useState('');
+  const [editSchemeId, setEditSchemeId] = useState(null);
+
+  // Deposit & Withdrawal States
+  const [showDepositModal, setShowDepositModal] = useState(false);
+  const [showWithdrawModal, setShowWithdrawModal] = useState(false);
+  const [depositAmount, setDepositAmount] = useState('');
+  const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [virtualAccount, setVirtualAccount] = useState(null);
+  const [virtualAccountTimer, setVirtualAccountTimer] = useState(0);
+  const [txMessage, setTxMessage] = useState({ type: '', text: '' });
+  const [txHistory, setTxHistory] = useState([]);
+  const [activeOrderBankDetails, setActiveOrderBankDetails] = useState(null);
+
+  // Account settings state
+  const [accountNumber, setAccountNumber] = useState('');
+  const [accountName, setAccountName] = useState('');
+  const [ifsc, setIfsc] = useState('');
+  const [upiId, setUpiId] = useState('');
+  const [bankLinkMessage, setBankLinkMessage] = useState({ type: '', text: '' });
+
+  // Password change states
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [passwordChangeMessage, setPasswordChangeMessage] = useState({ type: '', text: '' });
+
+  // Team states
+  const [teamData, setTeamData] = useState({ stats: { levelACount: 0, levelBCount: 0, totalTeam: 0, totalCommissions: 0 }, levelA: [], levelB: [], referralCode: '' });
+
+  // Timers references
+  const otpIntervalRef = useRef(null);
+  const vaIntervalRef = useRef(null);
+
+  // 1. Initial Authentication Check
+  useEffect(() => {
+    fetchSession();
+  }, []);
+
+  // Auto-calculate new scheme total return dynamically
+  useEffect(() => {
+    const price = parseFloat(newSchemePrice) || 0;
+    const rate = parseFloat(newSchemeRate) || 0;
+    const days = parseInt(newSchemeDays) || 0;
+    if (price > 0 && rate > 0 && days > 0) {
+      const dailyProfit = price * (rate / 100);
+      const totalProfit = dailyProfit * days;
+      const totalReturn = price + totalProfit;
+      setNewSchemeTotalReturn(totalReturn.toFixed(2));
+    } else {
+      setNewSchemeTotalReturn('');
+    }
+  }, [newSchemePrice, newSchemeRate, newSchemeDays]);
+
+  // Read referral code from query params if present (e.g. ?ref=CODE)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const refParam = params.get('ref');
+      if (refParam) {
+        setReferralCode(refParam);
+        setIsLogin(false); // Show registration form
+      }
+    }
+  }, []);
+
+  const promotionalSlides = [
+    {
+      title: "🎁 First Deposit Bonus",
+      desc: "Complete your first deposit and instantly receive an extra ₹50 Welcome Bonus.",
+      badge: "₹50 Extra"
+    },
+    {
+      title: "⚡ Medium Volume Reward",
+      desc: "Purchase orders worth a total of ₹5,000 or complete 10 total order purchases to receive an extra ₹150 Bonus.",
+      badge: "₹150 Extra"
+    },
+    {
+      title: "🔥 High Volume Reward",
+      desc: "Purchase orders worth a total of ₹10,000 or complete 25 total order purchases to receive an extra ₹500 Bonus.",
+      badge: "₹500 Extra"
+    },
+    {
+      title: "🚀 Multi-Buyer Bonus (5k)",
+      desc: "Purchase 2 Task Schemes worth ₹5,000 each and receive an extra ₹200 Bonus.",
+      badge: "₹200 Extra"
+    },
+    {
+      title: "💎 Multi-Buyer Bonus (10k)",
+      desc: "Purchase 4 Task Schemes worth ₹10,000 each and receive an extra ₹1,000 Bonus.",
+      badge: "₹1k Extra"
+    }
+  ];
+
+  useEffect(() => {
+    if (activeTab === 'home') {
+      const interval = setInterval(() => {
+        setActiveBannerSlide(prev => (prev + 1) % 5);
+      }, 4500);
+      return () => clearInterval(interval);
+    }
+  }, [activeTab]);
+
+  const fetchSession = async () => {
+    try {
+      const res = await fetch('/api/auth/me');
+      const data = await res.json();
+      if (data.success) {
+        setUser(data.user);
+        setAppState('app');
+        fetchSchemes();
+        fetchOrders();
+        fetchTransactions();
+        fetchTeamData();
+        fetchTasksProgress();
+        if (data.user.bankDetails) {
+          setAccountNumber(data.user.bankDetails.account_number);
+          setConfirmAccountNumber(data.user.bankDetails.account_number);
+          setAccountName(data.user.bankDetails.account_name);
+          setIfsc(data.user.bankDetails.ifsc);
+          setUpiId(data.user.bankDetails.upi_id);
+        }
+      } else if (res.status === 401 || res.status === 403) {
+        // Account deleted or suspended — force logout
+        await fetch('/api/auth/logout', { method: 'POST' });
+        setUser(null);
+        setAppState('auth');
+        setAuthError(data.error || 'Your session is no longer valid. Please login again.');
+      } else {
+        setAppState('auth');
+      }
+    } catch (e) {
+      setAppState('auth');
+    }
+  };
+
+  const fetchAdminData = async () => {
+    setAdminLoading(true);
+    try {
+      const res = await fetch('/api/admin/data');
+      const data = await res.json();
+      if (data.success) {
+        setAdminUsers(data.users);
+        setAdminTransactions(data.transactions);
+        setAdminOrders(data.orders);
+        setAdminSchemes(data.schemes);
+      }
+    } catch (e) {
+      console.error('Error fetching admin data:', e);
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'admin') {
+      fetchAdminData();
+    }
+  }, [activeTab]);
+
+  const formatTimerValue = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const paymentIntervalRef = useRef(null);
+  useEffect(() => {
+    if (activeOrderDetails && paymentStep === 2) {
+      setPaymentTimer(900); // 15 mins
+      paymentIntervalRef.current = setInterval(() => {
+        setPaymentTimer((prev) => {
+          if (prev <= 1) {
+            clearInterval(paymentIntervalRef.current);
+            handleUpdateDraftStatus('failed');
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else {
+      clearInterval(paymentIntervalRef.current);
+    }
+    return () => clearInterval(paymentIntervalRef.current);
+  }, [activeOrderDetails, paymentStep, currentDraftOrderId]);
+
+  // 2. Fetch Schemes, Orders, Transactions, & Team
+  const fetchSchemes = async () => {
+    try {
+      const res = await fetch('/api/schemes');
+      const data = await res.json();
+      if (data.success) setSchemes(data.schemes);
+    } catch (e) { }
+  };
+
+  const fetchOrders = async () => {
+    try {
+      const res = await fetch('/api/orders');
+      const data = await res.json();
+      if (data.success) setOrders(data.orders);
+    } catch (e) { }
+  };
+
+  const fetchTransactions = async () => {
+    try {
+      const res = await fetch('/api/transactions');
+      const data = await res.json();
+      if (data.success) setTxHistory(data.transactions);
+    } catch (e) { }
+  };
+
+  const fetchTasksProgress = async () => {
+    try {
+      const res = await fetch('/api/tasks/claim');
+      const data = await res.json();
+      if (data.success) setTasksProgress(data.taskProgress);
+    } catch (e) {
+      console.error('Error fetching tasks:', e);
+    }
+  };
+
+  const handleClaimTask = async (taskId) => {
+    try {
+      const res = await fetch('/api/tasks/claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskId })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(data.message);
+        fetchSession();
+        fetchTransactions();
+        fetchTasksProgress();
+      } else {
+        alert(data.error || 'Failed to claim reward.');
+      }
+    } catch (e) {
+      alert('Error claiming task reward.');
+    }
+  };
+
+  const fetchTeamData = async () => {
+    try {
+      const res = await fetch('/api/team');
+      const data = await res.json();
+      if (data.success) setTeamData(data);
+    } catch (e) { }
+  };
+
+  // 3. OTP Code Timer Logic (60s Limit)
+  useEffect(() => {
+    if (otpTimer > 0) {
+      otpIntervalRef.current = setInterval(() => {
+        setOtpTimer((prev) => prev - 1);
+      }, 1000);
+    } else {
+      clearInterval(otpIntervalRef.current);
+    }
+    return () => clearInterval(otpIntervalRef.current);
+  }, [otpTimer]);
+
+  const handleSendOtp = async () => {
+    if (!phone || phone.length < 10) {
+      setAuthError('Please enter a valid phone number first.');
+      return;
+    }
+    setOtpLoading(true);
+    setAuthError('');
+    try {
+      const res = await fetch('/api/auth/otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setOtpSent(true);
+        setOtpTimer(60);
+        setSentOtpCode(data.otp || ''); // Developer reference
+      } else {
+        setAuthError(data.error || 'Failed to send OTP.');
+      }
+    } catch (e) {
+      setAuthError('Error sending OTP.');
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
+  // 4. Register & Login Handlers
+  const handleAuthSubmit = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+
+    let endpoint = '';
+    let bodyObj = {};
+
+    if (isForgot) {
+      endpoint = '/api/auth/forgot-password';
+      bodyObj = { phone, otp, password };
+    } else if (isLogin) {
+      endpoint = '/api/auth/login';
+      bodyObj = { phone, password };
+    } else {
+      // Validate registration input format on frontend
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email.trim())) {
+        setAuthError('Invalid email address format.');
+        return;
+      }
+      const phoneRegex = /^\d{10}$/;
+      if (!phoneRegex.test(phone.trim())) {
+        setAuthError('Phone number must be exactly 10 digits.');
+        return;
+      }
+      const usernameRegex = /^[a-zA-Z0-9_]{3,20}$/;
+      if (!usernameRegex.test(username.trim())) {
+        setAuthError('Username must be 3-20 characters long and alphanumeric.');
+        return;
+      }
+
+      endpoint = '/api/auth/register';
+      bodyObj = { username, phone, email, password, otp, referralCode };
+    }
+
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bodyObj),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setUser(data.user);
+        setAppState('app');
+        fetchSchemes();
+        fetchOrders();
+        fetchTransactions();
+        fetchTeamData();
+      } else {
+        setAuthError(data.error || 'Authentication failed.');
+      }
+    } catch (err) {
+      setAuthError('Something went wrong. Please check your connection.');
+    }
+  };
+
+  const handleLogout = async () => {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    setUser(null);
+    setAppState('auth');
+    setActiveTab('home');
+  };
+
+  // 5. Virtual Account Deposit Timer logic
+  useEffect(() => {
+    if (virtualAccountTimer > 0) {
+      vaIntervalRef.current = setInterval(() => {
+        setVirtualAccountTimer((prev) => {
+          if (prev <= 1) {
+            setVirtualAccount(null);
+            setTxMessage({ type: 'error', text: 'Virtual bank details expired. Please request a new deposit.' });
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else {
+      clearInterval(vaIntervalRef.current);
+    }
+    return () => clearInterval(vaIntervalRef.current);
+  }, [virtualAccountTimer]);
+
+  const handleDepositSubmit = async (e) => {
+    e.preventDefault();
+    setTxMessage({ type: '', text: '' });
+    if (!depositAmount || parseFloat(depositAmount) <= 0) {
+      setTxMessage({ type: 'error', text: 'Enter a valid amount.' });
+      return;
+    }
+    try {
+      const res = await fetch('/api/transactions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'deposit', amount: depositAmount }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setVirtualAccount(data.depositDetails);
+        const secRemaining = Math.max(0, Math.floor((new Date(data.depositDetails.expiresAt) - new Date()) / 1000));
+        setVirtualAccountTimer(secRemaining);
+        fetchTransactions();
+      } else {
+        setTxMessage({ type: 'error', text: data.error });
+      }
+    } catch (err) {
+      setTxMessage({ type: 'error', text: 'Server error processing deposit request.' });
+    }
+  };
+
+  const handleWithdrawalSubmit = async (e) => {
+    e.preventDefault();
+    setTxMessage({ type: '', text: '' });
+    if (!withdrawAmount || parseFloat(withdrawAmount) <= 0) {
+      setTxMessage({ type: 'error', text: 'Enter a valid withdrawal amount.' });
+      return;
+    }
+    try {
+      const res = await fetch('/api/transactions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'withdrawal', amount: withdrawAmount }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTxMessage({ type: 'success', text: data.message });
+        setWithdrawAmount('');
+        fetchSession();
+        fetchTransactions();
+        setTimeout(() => setShowWithdrawModal(false), 2000);
+      } else {
+        setTxMessage({ type: 'error', text: data.error });
+      }
+    } catch (err) {
+      setTxMessage({ type: 'error', text: 'Server error requesting withdrawal.' });
+    }
+  };
+
+  const handleLinkBankSubmit = async (e) => {
+    e.preventDefault();
+    setBankLinkMessage({ type: '', text: '' });
+
+    if (accountNumber !== confirmAccountNumber) {
+      setBankLinkMessage({ type: 'error', text: 'Account numbers do not match.' });
+      return;
+    }
+
+    const accNumRegex = /^\d{9,18}$/;
+    if (!accNumRegex.test(accountNumber.trim())) {
+      setBankLinkMessage({ type: 'error', text: 'Invalid Account Number. Must be numeric and between 9 and 18 digits.' });
+      return;
+    }
+
+    const nameRegex = /^[a-zA-Z\s]{3,50}$/;
+    if (!nameRegex.test(accountName.trim())) {
+      setBankLinkMessage({ type: 'error', text: 'Invalid Account Name. Must be at least 3 letters (alphabetic and spaces only).' });
+      return;
+    }
+
+    const ifscRegex = /^[A-Z]{4}0[A-Z0-9]{6}$/;
+    if (!ifscRegex.test(ifsc.trim().toUpperCase())) {
+      setBankLinkMessage({ type: 'error', text: 'Invalid IFSC format. Must be like SBIN0012345.' });
+      return;
+    }
+
+    const upiRegex = /^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/;
+    if (!upiRegex.test(upiId.trim())) {
+      setBankLinkMessage({ type: 'error', text: 'Invalid UPI ID format. E.g. name@upi.' });
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountNumber: accountNumber.trim(), accountName: accountName.trim(), ifsc: ifsc.trim().toUpperCase(), upiId: upiId.trim() }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setBankLinkMessage({ type: 'success', text: data.message });
+        fetchSession();
+      } else {
+        setBankLinkMessage({ type: 'error', text: data.error });
+      }
+    } catch (e) {
+      setBankLinkMessage({ type: 'error', text: 'Error saving account info.' });
+    }
+  };
+
+  const handleChangePasswordSubmit = async (e) => {
+    e.preventDefault();
+    setPasswordChangeMessage({ type: '', text: '' });
+
+    if (newPassword !== confirmNewPassword) {
+      setPasswordChangeMessage({ type: 'error', text: 'New passwords do not match.' });
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      setPasswordChangeMessage({ type: 'error', text: 'New password must be at least 6 characters long.' });
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/user/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setPasswordChangeMessage({ type: 'success', text: data.message });
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmNewPassword('');
+      } else {
+        setPasswordChangeMessage({ type: 'error', text: data.error });
+      }
+    } catch (err) {
+      setPasswordChangeMessage({ type: 'error', text: 'Server error changing password.' });
+    }
+  };
+
+  const handleInitiateSchemePurchase = async (scheme) => {
+    if (user && (!user.isTelegramChannelJoined || !user.isTelegramGroupJoined)) {
+      setShowTelegramGate(true);
+      return;
+    }
+    setActiveOrderDetails(scheme);
+    setPaymentStep(1);
+    setPaymentUtr('');
+    setPaymentScreenshot(null);
+    try {
+      const res = await fetch('/api/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ schemeId: scheme.id, isDraft: true }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCurrentDraftOrderId(data.orderId);
+        setActiveOrderBankDetails(data.depositDetails);
+      }
+    } catch (e) {
+      console.error('Error initiating draft order:', e);
+    }
+  };
+
+  const handleUpdateDraftStatus = async (status) => {
+    if (!currentDraftOrderId) return;
+    try {
+      await fetch('/api/orders', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId: currentDraftOrderId, status }),
+      });
+      fetchOrders();
+      fetchTransactions();
+    } catch (e) {
+      console.error('Error updating order status:', e);
+    }
+  };
+
+  const handleCloseModal = async () => {
+    if (paymentStep === 2) {
+      if (paymentTimer === 0) {
+        await handleUpdateDraftStatus('failed');
+      } else {
+        await handleUpdateDraftStatus('cancelled');
+      }
+    }
+    setActiveOrderDetails(null);
+    setPaymentStep(1);
+    setPaymentUtr('');
+    setPaymentScreenshot(null);
+    setCurrentDraftOrderId(null);
+  };
+
+  const handleBuyOrder = async (schemeId, utr, screenshot) => {
+    setTxMessage({ type: '', text: '' });
+    if (!currentDraftOrderId) return;
+    try {
+      const res = await fetch('/api/orders', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId: currentDraftOrderId, utr, screenshot, status: 'pending' }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert('Payment details submitted successfully for verification!');
+        setActiveOrderDetails(null);
+        setPaymentStep(1);
+        setPaymentUtr('');
+        setPaymentScreenshot(null);
+        setCurrentDraftOrderId(null);
+        fetchSession();
+        fetchOrders();
+        fetchTransactions();
+      } else {
+        alert(data.error || 'Failed to submit payment details.');
+      }
+    } catch (e) {
+      alert('Failed to purchase scheme.');
+    }
+  };
+
+  const handleApproveOrder = async (orderId, action = 'approve') => {
+    try {
+      const res = await fetch('/api/orders/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, action }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(data.message);
+        fetchSession();
+        fetchOrders();
+        fetchTransactions();
+        fetchAdminData();
+      } else {
+        alert(data.error || 'Operation failed.');
+      }
+    } catch (e) {
+      alert('Error during processing request.');
+    }
+  };
+
+  const handleAdminAction = async (action, payload) => {
+    try {
+      const res = await fetch('/api/admin/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, payload }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(data.message);
+        fetchAdminData();
+        fetchSchemes();
+        fetchSession();
+        fetchOrders();
+        fetchTransactions();
+      } else {
+        alert(data.error || 'Admin action failed.');
+      }
+    } catch (e) {
+      alert('Error running admin action.');
+    }
+  };
+
+  const handleAddSchemeSubmit = async (e) => {
+    e.preventDefault();
+    if (!newSchemeName || !newSchemePrice || !newSchemeRate || !newSchemeDays || !newSchemeTotalReturn) {
+      alert('Please fill out all fields.');
+      return;
+    }
+    if (editSchemeId) {
+      await handleAdminAction('editScheme', {
+        schemeId: editSchemeId,
+        name: newSchemeName,
+        price: newSchemePrice,
+        dailyReturnRate: newSchemeRate,
+        days: newSchemeDays,
+        totalReturn: newSchemeTotalReturn
+      });
+      setEditSchemeId(null);
+    } else {
+      await handleAdminAction('addScheme', {
+        name: newSchemeName,
+        price: newSchemePrice,
+        dailyReturnRate: newSchemeRate,
+        days: newSchemeDays,
+        totalReturn: newSchemeTotalReturn
+      });
+    }
+    setNewSchemeName('');
+    setNewSchemePrice('');
+    setNewSchemeRate('');
+    setNewSchemeDays('');
+    setNewSchemeTotalReturn('');
+  };
+
+  const handleDeleteScheme = async (schemeId) => {
+    if (!confirm("Are you sure you want to delete this scheme?")) return;
+    await handleAdminAction('deleteScheme', { schemeId });
+    fetchSchemes();
+  };
+
+
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text);
+    alert('Copied to clipboard!');
+  };
+
+  const getUnifiedHistory = () => {
+    const feed = [];
+
+    // Add transactions
+    txHistory.forEach(tx => {
+      feed.push({
+        id: `tx-${tx.id}`,
+        rawId: tx.id,
+        itemType: 'transaction',
+        type: tx.type,
+        title: tx.type === 'deposit' ? 'Wallet Deposit' :
+          tx.type === 'withdrawal' ? 'Withdrawal Request' :
+            tx.type === 'scheme_payout' ? 'Daily Return Payout' :
+              tx.type === 'principal_return' ? 'Investment Principal Returned' :
+                tx.type.replace(/_/g, ' '),
+        amount: tx.amount,
+        status: tx.status,
+        date: new Date(tx.created_at),
+        raw: tx
+      });
+    });
+
+    // Add orders
+    orders.forEach(order => {
+      feed.push({
+        id: `order-${order.id}`,
+        rawId: order.id,
+        itemType: 'order',
+        type: 'order',
+        title: `Purchase: ${order.scheme_name}`,
+        amount: -order.price, // negative to show expenditure/investment
+        status: order.status === 'pending' ? 'pending' : order.days_remaining > 0 ? 'active' : 'completed',
+        date: new Date(order.created_at),
+        raw: order
+      });
+    });
+
+    // Sort by date newest first
+    return feed.sort((a, b) => b.date - a.date);
+  };
+
+  // Rendering Helper: Loading State
+  if (appState === 'loading') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', gap: '15px' }}>
+        <RefreshCw style={{ animation: 'spin 1.5s linear infinite', color: 'var(--accent-secondary)' }} size={40} />
+        <h2 style={{ fontSize: '1.25rem', color: 'var(--text-secondary)' }}>Loading FastPay Secure...</h2>
+        <style jsx global>{`
+          @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        `}</style>
+      </div>
+    );
+  }
+
+  // Rendering Helper: Authentication Views
+  if (appState === 'auth') {
+    return (
+      <div className="animate-fade-in" style={{ padding: '30px 20px', display: 'flex', flexDirection: 'column', minHeight: '100vh', justifyContent: 'center' }}>
+        <div className="glass-panel" style={{ padding: '30px 20px', border: '1px solid rgba(255,255,255,0.06)' }}>
+          <h1 id="auth-title" style={{ textAlign: 'center', fontSize: '2rem', marginBottom: '8px' }} className="gradient-text">FastPay</h1>
+          <p style={{ color: 'var(--text-secondary)', textAlign: 'center', fontSize: '0.875rem', marginBottom: '24px' }}>
+            {isForgot
+              ? 'Reset your secure wallet credentials.'
+              : isLogin
+                ? 'Welcome back! Access your account.'
+                : 'Fill in the details below to get started.'}
+          </p>
+
+          {authError && (
+            <div style={{ background: 'rgba(255, 118, 117, 0.1)', color: 'var(--error)', padding: '12px', borderRadius: '8px', fontSize: '0.85rem', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <AlertCircle size={16} />
+              <span>{authError}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleAuthSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {!isLogin && !isForgot && (
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Username</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. atifk"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  required
+                />
+              </div>
+            )}
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Phone Number</label>
+              <input
+                type="tel"
+                className="form-input"
+                placeholder="10-digit mobile number"
+                value={phone}
+                maxLength={10}
+                onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                required
+              />
+            </div>
+
+            {!isLogin && !isForgot && (
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Email Address</label>
+                <input
+                  type="email"
+                  className="form-input"
+                  placeholder="name@email.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
+              </div>
+            )}
+
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                  {isForgot ? 'New Password' : 'Password'}
+                </label>
+                {isLogin && (
+                  <span
+                    onClick={() => { setIsForgot(true); setIsLogin(false); setAuthError(''); }}
+                    style={{ fontSize: '0.75rem', color: 'var(--accent-secondary)', cursor: 'pointer' }}
+                  >
+                    Forgot Password?
+                  </span>
+                )}
+              </div>
+              <input
+                type="password"
+                className="form-input"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
+
+            {(!isLogin || isForgot) && (
+              <>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Verification OTP</label>
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="6-digit OTP"
+                      value={otp}
+                      onChange={(e) => setOtp(e.target.value)}
+                      required
+                    />
+                    <button
+                      type="button"
+                      className="gradient-btn"
+                      onClick={handleSendOtp}
+                      disabled={otpLoading || otpTimer > 0}
+                      style={{ padding: '0 15px', borderRadius: '10px', fontSize: '0.85rem', whiteSpace: 'nowrap', opacity: (otpTimer > 0 || otpLoading) ? 0.6 : 1 }}
+                    >
+                      {otpTimer > 0 ? `Resend in ${otpTimer}s` : 'Send OTP'}
+                    </button>
+                  </div>
+
+                  {otpTimer > 0 && (
+                    <div style={{ marginTop: '8px' }}>
+                      <div className="countdown-bar" style={{ borderRadius: '2px' }} />
+                      <div style={{ fontSize: '0.75rem', color: 'var(--accent-secondary)', marginTop: '4px', textAlign: 'right' }}>
+                        OTP expires in {otpTimer}s
+                      </div>
+                    </div>
+                  )}
+
+                  {sentOtpCode && (
+                    <div style={{ marginTop: '8px', padding: '6px 12px', background: 'rgba(0, 206, 201, 0.1)', borderRadius: '6px', fontSize: '0.8rem', color: 'var(--accent-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>🔑 Demo OTP Code: <strong>{sentOtpCode}</strong></span>
+                      <button type="button" onClick={() => copyToClipboard(sentOtpCode)} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer' }}>
+                        <Copy size={12} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {!isForgot && (
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Referral Code (Optional)</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="Referral Code (e.g. FP123456)"
+                      value={referralCode}
+                      onChange={(e) => setReferralCode(e.target.value)}
+                    />
+                  </div>
+                )}
+              </>
+            )}
+
+            <button type="submit" className="gradient-btn" style={{ padding: '14px', borderRadius: '10px', fontSize: '1rem', marginTop: '8px' }}>
+              {isForgot ? 'Reset & Access Account' : isLogin ? 'Authenticate Access' : 'Create Secure Wallet'}
+            </button>
+          </form>
+
+          <p style={{ textAlign: 'center', marginTop: '20px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+            {isForgot ? (
+              <>
+                Remember your password?{' '}
+                <span
+                  onClick={() => { setIsForgot(false); setIsLogin(true); setAuthError(''); }}
+                  style={{ color: 'var(--accent-secondary)', cursor: 'pointer', fontWeight: 600 }}
+                >
+                  Back to Login
+                </span>
+              </>
+            ) : (
+              <>
+                {isLogin ? "Don't have an account?" : 'Already registered?'} {' '}
+                <span
+                  onClick={() => { setIsLogin(!isLogin); setIsForgot(false); setAuthError(''); }}
+                  style={{ color: 'var(--accent-secondary)', cursor: 'pointer', fontWeight: 600 }}
+                >
+                  {isLogin ? 'Register New account' : 'Login now'}
+                </span>
+              </>
+            )}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const renderTaskCard = (taskId, title, desc, reward, prog, isVolumeTask = false) => {
+    if (!prog) return null;
+
+    let progressText = "";
+    let percent = 0;
+
+    if (isVolumeTask) {
+      const spentPercent = Math.min((prog.spentCurrent / prog.spentTarget) * 100, 100);
+      const countPercent = Math.min((prog.countCurrent / prog.countTarget) * 100, 100);
+      percent = Math.max(spentPercent, countPercent);
+
+      progressText = `Volume: ₹${prog.spentCurrent}/${prog.spentTarget} OR Count: ${prog.countCurrent}/${prog.countTarget}`;
+    } else {
+      percent = Math.min((prog.current / prog.target) * 100, 100);
+      progressText = `Progress: ${prog.current}/${prog.target}`;
+    }
+
+    return (
+      <div className="glass-panel" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h4 style={{ fontWeight: 700, fontSize: '0.95rem' }}>{title}</h4>
+            <span style={{ fontSize: '0.75rem', color: 'var(--success)', fontWeight: 700, background: 'rgba(0,184,148,0.1)', padding: '2px 8px', borderRadius: '4px', display: 'inline-block', marginTop: '4px' }}>
+              {reward}
+            </span>
+          </div>
+
+          <div>
+            {prog.claimed ? (
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Claimed ✓</span>
+            ) : (
+              <button
+                disabled={!prog.isCompleted}
+                onClick={() => handleClaimTask(taskId)}
+                className="gradient-btn"
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '6px',
+                  fontSize: '0.8rem',
+                  opacity: prog.isCompleted ? 1 : 0.4,
+                  cursor: prog.isCompleted ? 'pointer' : 'not-allowed'
+                }}
+              >
+                Claim
+              </button>
+            )}
+          </div>
+        </div>
+
+        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+          {desc}
+        </p>
+
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+            <span>{progressText}</span>
+            <span>{percent.toFixed(0)}%</span>
+          </div>
+          <div style={{ width: '100%', height: '6px', background: 'var(--bg-tertiary)', borderRadius: '3px', overflow: 'hidden' }}>
+            <div style={{ width: `${percent}%`, height: '100%', background: 'linear-gradient(90deg, var(--accent) 0%, var(--accent-secondary) 100%)', borderRadius: '3px', transition: 'width 0.3s' }} />
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Rendering Helper: Dashboard Sub-tabs
+  return (
+    <div style={{ padding: '20px 20px 100px 20px', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+
+      {/* Top Header */}
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+        <div>
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>Welcome back,</span>
+          <h1 id="user-header" style={{ fontSize: '1.25rem', fontWeight: 700 }} className="gradient-text">{user?.username}</h1>
+        </div>
+        {user?.supportId && (
+          <div 
+            onClick={() => {
+              if (navigator.clipboard) {
+                navigator.clipboard.writeText(user.supportId);
+                alert(`Support ID ${user.supportId} copied to clipboard!`);
+              }
+            }}
+            style={{ 
+              background: 'var(--bg-secondary)', 
+              border: '1px solid var(--glass-border)', 
+              padding: '8px 14px', 
+              borderRadius: '12px', 
+              color: 'var(--accent-secondary)', 
+              fontSize: '0.8rem', 
+              fontFamily: 'monospace', 
+              fontWeight: 700, 
+              letterSpacing: '1px',
+              cursor: 'pointer'
+            }}
+            title="Click to copy Support ID"
+          >
+            ID: {user.supportId}
+          </div>
+        )}
+      </header>
+
+      {/* --- TAB 1: HOME --- */}
+      {activeTab === 'home' && (
+        <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+
+          {/* Sliding Promotional Banner */}
+          <div className="glass-panel" style={{
+            padding: '16px',
+            background: 'linear-gradient(135deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            position: 'relative',
+            overflow: 'hidden',
+            borderRadius: '12px'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', fontSize: '0.75rem', color: 'var(--gold)' }}>
+              <span>📅 Event Duration: <strong>1 July - 30 July</strong></span>
+              <span style={{ background: 'rgba(253, 203, 110, 0.1)', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>Active Event</span>
+            </div>
+
+            {/* Slider Content Wrapper */}
+            <div style={{ minHeight: '80px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+              {promotionalSlides.map((slide, idx) => {
+                if (idx !== activeBannerSlide) return null;
+                return (
+                  <div key={idx} className="animate-fade-in">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                      <h4 style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)' }}>{slide.title}</h4>
+                      <span style={{ fontSize: '0.75rem', background: 'rgba(0, 184, 148, 0.1)', color: 'var(--success)', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>
+                        {slide.badge}
+                      </span>
+                    </div>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+                      {slide.desc}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Dot Indicators */}
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '6px', marginTop: '10px' }}>
+              {promotionalSlides.map((_, idx) => (
+                <div
+                  key={idx}
+                  onClick={() => setActiveBannerSlide(idx)}
+                  style={{
+                    width: '6px',
+                    height: '6px',
+                    borderRadius: '50%',
+                    background: idx === activeBannerSlide ? 'var(--accent-secondary)' : 'var(--glass-border)',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* Main Wallet Card */}
+          <div className="glass-panel" style={{ padding: '24px', background: 'linear-gradient(135deg, rgba(108, 92, 231, 0.2) 0%, rgba(0, 206, 201, 0.1) 100%)', border: '1px solid rgba(108, 92, 231, 0.3)' }}>
+            <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Wallet Available Balance</span>
+            <div style={{ fontSize: '2.5rem', fontWeight: 700, margin: '8px 0', color: 'var(--text-primary)' }}>
+              ₹{user?.walletBalance.toFixed(2)}
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
+              <button
+                onClick={() => { setDepositAmount(''); setVirtualAccount(null); setTxMessage({ type: '', text: '' }); setShowDepositModal(true); }}
+                className="gradient-btn"
+                style={{ flex: 1, padding: '12px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+              >
+                <Plus size={16} /> Deposit
+              </button>
+              <button
+                onClick={() => { setWithdrawAmount(''); setTxMessage({ type: '', text: '' }); setShowWithdrawModal(true); }}
+                style={{ flex: 1, padding: '12px', borderRadius: '10px', background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', color: 'var(--text-primary)', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+              >
+                <ArrowUpRight size={16} /> Cash-out
+              </button>
+            </div>
+          </div>
+
+          {/* Quick Metrics Grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div className="glass-panel" style={{ padding: '16px' }}>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Active Returns</span>
+              <div style={{ fontSize: '1.25rem', fontWeight: 700, marginTop: '4px', color: 'var(--success)' }}>
+                ₹{orders.reduce((acc, o) => acc + (o.status === 'active' && o.days_remaining > 0 ? o.daily_income : 0), 0).toFixed(2)} /day
+              </div>
+            </div>
+            <div className="glass-panel" style={{ padding: '16px' }}>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Total Referrals</span>
+              <div style={{ fontSize: '1.25rem', fontWeight: 700, marginTop: '4px', color: 'var(--accent-secondary)' }}>
+                {teamData.stats.totalTeam} Users
+              </div>
+            </div>
+          </div>
+
+          {/* Dynamic Unified Feed (All History: Deposits, Withdrawals, Pending, Failed, Orders) */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>Account Transaction & Order Feed</h3>
+              <span onClick={() => { setActiveTab('ledger'); setLedgerFilter('all'); }} style={{ fontSize: '0.8rem', color: 'var(--accent-secondary)', cursor: 'pointer' }}>View All</span>
+            </div>
+
+            {getUnifiedHistory().length === 0 ? (
+              <div className="glass-panel" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                No recent transactions or orders recorded.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {getUnifiedHistory().slice(0, 8).map((item) => (
+                  <div
+                    key={item.id}
+                    onClick={() => setSelectedHistoryItem(item)}
+                    className="glass-panel interactive-card"
+                    style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        {item.itemType === 'order' ? (
+                          <TrendingUp size={14} color="var(--accent-primary)" />
+                        ) : item.amount > 0 ? (
+                          <ArrowDownLeft size={14} color="var(--success)" />
+                        ) : (
+                          <ArrowUpRight size={14} color="var(--error)" />
+                        )}
+                        {item.title}
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                        {item.date.toLocaleDateString()} {item.date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{
+                        fontWeight: 700,
+                        fontSize: '0.9rem',
+                        color: item.amount > 0 ? 'var(--success)' : 'var(--error)'
+                      }}>
+                        {item.amount > 0 ? `+₹${item.amount.toFixed(2)}` : `-₹${Math.abs(item.amount).toFixed(2)}`}
+                      </div>
+                      <span style={{
+                        fontSize: '0.65rem',
+                        background: item.status === 'completed' || item.status === 'active' ? 'rgba(0, 184, 148, 0.1)' :
+                          item.status === 'pending' ? 'rgba(253, 203, 110, 0.1)' : 'rgba(255, 118, 117, 0.1)',
+                        color: item.status === 'completed' || item.status === 'active' ? 'var(--success)' :
+                          item.status === 'pending' ? 'var(--gold)' : 'var(--error)',
+                        padding: '1px 6px',
+                        borderRadius: '4px',
+                        textTransform: 'capitalize'
+                      }}>
+                        {item.status}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* --- TAB 2: ORDERS --- */}
+      {activeTab === 'orders' && (
+        <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 600 }}>Buy Investment Scheme</h2>
+              <button
+                onClick={fetchSchemes}
+                style={{
+                  background: 'var(--bg-secondary)',
+                  border: '1px solid var(--glass-border)',
+                  padding: '6px 12px',
+                  borderRadius: '8px',
+                  color: 'var(--accent-secondary)',
+                  fontSize: '0.8rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}
+              >
+                <RefreshCw size={12} /> Refresh Schemes
+              </button>
+            </div>
+            {/* Search Input Box */}
+            <div style={{ marginBottom: '16px' }}>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="🔍 Search scheme by price or name (e.g. 500)..."
+                value={schemeSearchQuery}
+                onChange={(e) => setSchemeSearchQuery(e.target.value)}
+                style={{ borderRadius: '10px', fontSize: '0.85rem' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {(() => {
+                const filtered = schemes.filter(scheme =>
+                  scheme.price.toString().includes(schemeSearchQuery) ||
+                  scheme.name.toLowerCase().includes(schemeSearchQuery.toLowerCase())
+                );
+
+                if (filtered.length === 0) {
+                  return (
+                    <div className="glass-panel" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                      No schemes match your search query.
+                    </div>
+                  );
+                }
+
+                // If no search query, repeat the schemes 4 times to look populated
+                let displayed = [];
+                if (schemeSearchQuery) {
+                  displayed = filtered.map((s, idx) => ({ ...s, uniqueKey: `${s.id}-${idx}` }));
+                } else {
+                  for (let i = 0; i < 4; i++) {
+                    filtered.forEach((s) => {
+                      displayed.push({ ...s, uniqueKey: `${s.id}-rep-${i}` });
+                    });
+                  }
+                }
+
+                return displayed.map((scheme) => (
+                  <div
+                    key={scheme.uniqueKey}
+                    onClick={() => handleInitiateSchemePurchase(scheme)}
+                    className="glass-panel interactive-card"
+                    style={{ padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                  >
+                    <div>
+                      <h4 style={{ fontWeight: 600, fontSize: '0.95rem' }}>{scheme.name}</h4>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                        Price: <strong>₹{scheme.price}</strong> • Duration: <strong>{scheme.days} Days</strong>
+                      </div>
+                    </div>
+                    <ChevronRight size={18} style={{ color: 'var(--text-secondary)' }} />
+                  </div>
+                ));
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- TAB 3: TEAM --- */}
+      {activeTab === 'team' && (
+        <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* Referral Stats Card */}
+          <div className="glass-panel" style={{ padding: '20px', background: 'linear-gradient(135deg, rgba(0, 206, 201, 0.1) 0%, rgba(108, 92, 231, 0.05) 100%)' }}>
+            <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Referral Commissions Earned</span>
+            <div style={{ fontSize: '2rem', fontWeight: 700, margin: '8px 0', color: 'var(--success)' }}>
+              ₹{teamData.stats.totalCommissions.toFixed(2)}
+            </div>
+
+            <div style={{ marginTop: '16px', borderTop: '1px solid var(--glass-border)', paddingTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Your Referral Link</span>
+                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)', wordBreak: 'break-all', maxWidth: '240px' }}>
+                  {typeof window !== 'undefined' ? `${window.location.origin}/?ref=${teamData.referralCode}` : teamData.referralCode}
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  const link = `${window.location.origin}/?ref=${teamData.referralCode}`;
+                  navigator.clipboard.writeText(link);
+                  alert('Referral link copied to clipboard!');
+                }}
+                className="gradient-btn"
+                style={{ padding: '8px 16px', borderRadius: '8px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}
+              >
+                <Copy size={12} /> Copy Link
+              </button>
+            </div>
+          </div>
+
+          {/* Level A Direct Tree */}
+          <div>
+            <h3
+              onClick={() => setShowLevelAMembers(!showLevelAMembers)}
+              style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '8px', display: 'flex', justifyContent: 'space-between', cursor: 'pointer', alignItems: 'center' }}
+            >
+              <span>Level A Direct Referrals (0.3% Com)</span>
+              <span style={{ color: 'var(--accent-secondary)', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.85rem' }}>
+                {teamData.stats.levelACount} Members {showLevelAMembers ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              </span>
+            </h3>
+
+            {showLevelAMembers && (
+              teamData.levelA.length === 0 ? (
+                <div className="glass-panel" style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                  No direct referrals recorded yet.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {teamData.levelA.map((member, idx) => (
+                    <div key={idx} className="glass-panel" style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem' }}>
+                      <div>
+                        <div style={{ fontWeight: 600 }}>{member.username}</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{member.phone}</div>
+                      </div>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                        Joined {new Date(member.joinedAt).toLocaleDateString()}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )
+            )}
+          </div>
+
+          {/* Level B Indirect Tree */}
+          <div>
+            <h3
+              onClick={() => setShowLevelBMembers(!showLevelBMembers)}
+              style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '8px', display: 'flex', justifyContent: 'space-between', cursor: 'pointer', alignItems: 'center' }}
+            >
+              <span>Level B Indirect Referrals (0.15% Com)</span>
+              <span style={{ color: 'var(--accent-secondary)', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.85rem' }}>
+                {teamData.stats.levelBCount} Members {showLevelBMembers ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              </span>
+            </h3>
+
+            {showLevelBMembers && (
+              teamData.levelB.length === 0 ? (
+                <div className="glass-panel" style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                  No Level B indirect referrals yet.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {teamData.levelB.map((member, idx) => (
+                    <div key={idx} className="glass-panel" style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem' }}>
+                      <div>
+                        <div style={{ fontWeight: 600 }}>{member.username}</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{member.phone}</div>
+                      </div>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                        Joined {new Date(member.joinedAt).toLocaleDateString()}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )
+            )}
+          </div>
+
+          {/* Referral Rewards Explanation Banner */}
+          <div className="glass-panel" style={{ padding: '20px', background: 'linear-gradient(135deg, rgba(108, 92, 231, 0.15) 0%, rgba(0, 206, 201, 0.1) 100%)', border: '1px solid rgba(108, 92, 231, 0.25)', marginTop: '10px' }}>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '12px' }} className="gradient-text">FastPay Referral Reward Program</h3>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-primary)', marginBottom: '16px', lineHeight: '1.4' }}>
+              Welcome to the FastPay high-yield network. Share your secure invitation code to build your two-tier passive yield portfolio:
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '0.85rem' }}>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                <span style={{ fontSize: '1.25rem', lineHeight: '1' }}>🎁</span>
+                <div>
+                  <strong style={{ color: 'var(--text-primary)' }}>New User Signup Bonus:</strong>
+                  <div style={{ color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    Every user gets an immediate <strong style={{ color: 'var(--success)' }}>₹100.00 welcome bonus</strong> upon first-time registration.
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', borderTop: '1px solid var(--glass-border)', paddingTop: '10px' }}>
+                <span style={{ fontSize: '1.25rem', lineHeight: '1' }}>👥</span>
+                <div>
+                  <strong style={{ color: 'var(--text-primary)' }}>Direct Referral Invite Bonus:</strong>
+                  <div style={{ color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    When a new user signs up using your referral code:
+                    <ul style={{ paddingLeft: '20px', marginTop: '4px', listStyleType: 'disc' }}>
+                      <li>They get the starting welcome balance of <strong style={{ color: 'var(--success)' }}>₹100.00</strong>.</li>
+                      <li>You get credited <strong style={{ color: 'var(--success)' }}>₹50.00</strong> instantly in your wallet!</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', borderTop: '1px solid var(--glass-border)', paddingTop: '10px' }}>
+                <span style={{ fontSize: '1.25rem', lineHeight: '1' }}>📈</span>
+                <div>
+                  <strong style={{ color: 'var(--text-primary)' }}>2-Tier Investment Commissions:</strong>
+                  <div style={{ color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    Earn passive commissions whenever members of your network subscribe to schemes:
+                    <ul style={{ paddingLeft: '20px', marginTop: '4px', listStyleType: 'disc' }}>
+                      <li><strong style={{ color: 'var(--text-primary)' }}>Level A (Direct):</strong> Get <strong style={{ color: 'var(--accent-secondary)' }}>0.30% commission</strong> of their scheme price.</li>
+                      <li><strong style={{ color: 'var(--text-primary)' }}>Level B (Indirect):</strong> Get <strong style={{ color: 'var(--accent-secondary)' }}>0.15% commission</strong> of their scheme price.</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- TAB 4: ACCOUNT --- */}
+      {activeTab === 'account' && (
+        <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div className="glass-panel" style={{ padding: '20px' }}>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '6px' }}>Link Bank Details</h2>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+              Add a valid settlement account. All deposits and withdrawals map to these credentials.
+            </p>
+
+            {bankLinkMessage.text && (
+              <div style={{
+                background: bankLinkMessage.type === 'success' ? 'rgba(0, 184, 148, 0.1)' : 'rgba(255, 118, 117, 0.1)',
+                color: bankLinkMessage.type === 'success' ? 'var(--success)' : 'var(--error)',
+                padding: '12px', borderRadius: '8px', fontSize: '0.85rem', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px'
+              }}>
+                {bankLinkMessage.type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+                <span>{bankLinkMessage.text}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleLinkBankSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Account Holder Name</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="Exact Name on Passbook"
+                  value={accountName}
+                  onChange={(e) => setAccountName(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Account Number</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="Bank account number"
+                  value={accountNumber}
+                  onChange={(e) => setAccountNumber(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Confirm Account Number</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="Re-enter bank account number"
+                  value={confirmAccountNumber}
+                  onChange={(e) => setConfirmAccountNumber(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>IFSC Code</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. SBIN0012345"
+                  value={ifsc}
+                  onChange={(e) => setIfsc(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>UPI ID</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. user@ybl"
+                  value={upiId}
+                  onChange={(e) => setUpiId(e.target.value)}
+                  required
+                />
+              </div>
+
+              <button type="submit" className="gradient-btn" style={{ padding: '14px', borderRadius: '10px', fontSize: '1rem', marginTop: '8px' }}>
+                Verify & Save Settings
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- TAB: LEDGER --- */}
+      {activeTab === 'ledger' && (
+        <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 600 }}>Transaction Ledger & Logs</h2>
+            <button
+              onClick={() => setActiveTab('home')}
+              style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', padding: '6px 14px', borderRadius: '8px', color: 'var(--text-primary)', cursor: 'pointer', fontSize: '0.8rem' }}
+            >
+              Back to Home
+            </button>
+          </div>
+
+          {/* Filter Dropdown box */}
+          <div className="glass-panel" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Filter History:</label>
+            <select
+              value={ledgerFilter}
+              onChange={(e) => setLedgerFilter(e.target.value)}
+              className="form-input"
+              style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: '0.85rem' }}
+            >
+              <option value="all">📁 All History</option>
+              <option value="pending">⏳ Pending Transactions</option>
+              <option value="successful">✅ Successful Transactions</option>
+              <option value="failed">❌ Failed & Cancelled</option>
+              <option value="withdrawals">💸 Withdrawals</option>
+            </select>
+          </div>
+
+          {/* Ledger History List */}
+          <div>
+            {(() => {
+              const filteredList = txHistory.filter((tx) => {
+                if (ledgerFilter === 'all') return true;
+                if (ledgerFilter === 'pending') return tx.status === 'pending';
+                if (ledgerFilter === 'successful') return tx.status === 'completed';
+                if (ledgerFilter === 'failed') return tx.status === 'failed' || tx.status === 'rejected' || tx.status === 'cancelled';
+                if (ledgerFilter === 'withdrawals') return tx.type === 'withdrawal';
+                return true;
+              });
+
+              if (filteredList.length === 0) {
+                return (
+                  <div className="glass-panel" style={{ padding: '30px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                    No matching ledger records found.
+                  </div>
+                );
+              }
+
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {filteredList.map((tx) => (
+                    <div key={tx.id} className="glass-panel" style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: '0.85rem', textTransform: 'capitalize', color: 'var(--text-primary)' }}>
+                          {tx.type.replace(/_/g, ' ')}
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                          {new Date(tx.created_at).toLocaleString()}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{
+                          fontWeight: 700,
+                          fontSize: '0.9rem',
+                          color: tx.amount > 0 ? 'var(--success)' : 'var(--text-primary)'
+                        }}>
+                          {tx.amount > 0 ? `+₹${tx.amount.toFixed(2)}` : `-₹${Math.abs(tx.amount).toFixed(2)}`}
+                        </div>
+                        <span style={{
+                          fontSize: '0.7rem',
+                          background: tx.status === 'completed' ? 'rgba(0, 184, 148, 0.1)' :
+                            tx.status === 'pending' ? 'rgba(253, 203, 110, 0.1)' : 'rgba(255, 118, 117, 0.1)',
+                          color: tx.status === 'completed' ? 'var(--success)' :
+                            tx.status === 'pending' ? 'var(--gold)' : 'var(--error)',
+                          padding: '1px 6px',
+                          borderRadius: '4px',
+                          textTransform: 'capitalize'
+                        }}>
+                          {tx.status}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
+      {/* --- TAB 5: ME --- */}
+      {activeTab === 'me' && (
+        <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* User balance cards */}
+          <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block' }}>Available Earning Balance</span>
+                <h2 style={{ fontSize: '1.75rem', fontWeight: 700, color: 'var(--text-primary)' }}>₹{user?.walletBalance.toFixed(2)}</h2>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block' }}>Active Principal Balance</span>
+                <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--accent-secondary)' }}>
+                  ₹{orders.reduce((acc, o) => acc + (o.status === 'active' && o.days_remaining > 0 ? o.price : 0), 0).toFixed(2)}
+                </h3>
+              </div>
+            </div>
+
+            {/* Admin Dashboard Entry (visible ONLY to username === 'admin' or 'atifk') */}
+            {(user?.role === 'admin' || user?.username === 'admin' || user?.username === 'atifk') && (
+              <button
+                onClick={() => setActiveTab('admin')}
+                className="gradient-btn interactive-card"
+                style={{ padding: '12px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '0.9rem', cursor: 'pointer' }}
+              >
+                <Lock size={16} /> Open Admin Control Panel
+              </button>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', borderTop: '1px solid var(--glass-border)', paddingTop: '16px' }}>
+              <div>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <ArrowDownLeft size={12} color="var(--success)" /> Today's Deposit
+                </span>
+                <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--success)' }}>
+                  ₹{txHistory.reduce((acc, t) => {
+                    const isToday = new Date(t.created_at).toDateString() === new Date().toDateString();
+                    return (isToday && t.type === 'deposit' && t.status === 'completed') ? acc + t.amount : acc;
+                  }, 0).toFixed(2)}
+                </div>
+              </div>
+
+              <div>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <ArrowUpRight size={12} color="var(--error)" /> Today's Withdrawal
+                </span>
+                <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--error)' }}>
+                  ₹{Math.abs(txHistory.reduce((acc, t) => {
+                    const isToday = new Date(t.created_at).toDateString() === new Date().toDateString();
+                    return (isToday && t.type === 'withdrawal') ? acc + t.amount : acc;
+                  }, 0)).toFixed(2)}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Support ID Card */}
+          {user?.supportId && (
+            <div className="glass-panel" style={{ padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(108, 92, 231, 0.06)', border: '1px solid rgba(108, 92, 231, 0.18)' }}>
+              <div>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>🎫 Your Support ID</span>
+                <span style={{ fontSize: '1.4rem', fontWeight: 800, letterSpacing: '4px', color: '#a29bfe', fontFamily: 'monospace' }}>{user.supportId}</span>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Share this ID when contacting support</div>
+              </div>
+              <button
+                onClick={() => copyToClipboard(user.supportId)}
+                style={{ background: 'rgba(108, 92, 231, 0.15)', border: '1px solid rgba(108, 92, 231, 0.3)', color: '#a29bfe', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}
+              >
+                Copy
+              </button>
+            </div>
+          )}
+
+          {/* Your Investment Schemes */}
+          <div>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '12px' }} className="gradient-text">Your Subscribed Schemes</h3>
+            {orders.filter(order => !order.utr.startsWith('DRAFT-')).length === 0 ? (
+              <div className="glass-panel" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                You have no active investment schemes yet.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '340px', overflowY: 'auto', paddingRight: '4px' }}>
+                {orders.filter(order => !order.utr.startsWith('DRAFT-')).map((order) => {
+                  let statusBg = 'rgba(255,255,255,0.05)';
+                  let statusColor = 'var(--text-secondary)';
+                  let statusLabel = 'Completed';
+
+                  if (order.status === 'pending') {
+                    statusBg = 'rgba(253, 203, 110, 0.15)';
+                    statusColor = '#fdcb6e';
+                    statusLabel = 'Verification Pending';
+                  } else if (order.status === 'active' || order.status === 'expired_pending_match') {
+                    statusBg = 'rgba(0, 184, 148, 0.1)';
+                    statusColor = 'var(--success)';
+                    statusLabel = 'Active';
+                  } else if (order.status === 'cancelled') {
+                    statusBg = 'rgba(255, 118, 117, 0.1)';
+                    statusColor = 'var(--error)';
+                    statusLabel = 'Cancelled';
+                  } else if (order.status === 'failed') {
+                    statusBg = 'rgba(255, 118, 117, 0.1)';
+                    statusColor = 'var(--error)';
+                    statusLabel = 'Failed';
+                  } else if (order.status === 'rejected') {
+                    statusBg = 'rgba(255, 118, 117, 0.1)';
+                    statusColor = 'var(--error)';
+                    statusLabel = 'Rejected';
+                  }
+
+                  return (
+                    <div key={order.id} className="glass-panel" style={{ padding: '16px', borderLeft: `3px solid ${statusColor}` }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                        <h4 style={{ fontWeight: 600 }}>{order.scheme_name}</h4>
+                        <span style={{
+                          fontSize: '0.75rem',
+                          background: statusBg,
+                          color: statusColor,
+                          padding: '2px 8px',
+                          borderRadius: '4px'
+                        }}>
+                          {statusLabel}
+                        </span>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                        <div>Investment: <strong>₹{order.price}</strong></div>
+                        <div>Daily Return: <strong style={{ color: 'var(--success)' }}>₹{order.daily_income.toFixed(2)}</strong></div>
+                        {order.status === 'active' && <div>Days Remaining: <strong>{order.days_remaining} Days</strong></div>}
+                        <div>UTR ID: <strong style={{ color: 'var(--accent-secondary)' }}>{order.utr}</strong></div>
+                        <div>Purchased: <strong>{new Date(order.created_at).toLocaleDateString()}</strong></div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Support & Community Section */}
+          <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <h3 style={{ fontSize: '1rem', fontWeight: 600 }} className="gradient-text">Support & Community</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <a
+                href="https://t.me/+GclayxaTZac3MDg1"
+                target="_blank"
+                rel="noreferrer"
+                className="interactive-card"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '12px',
+                  background: 'var(--bg-secondary)',
+                  borderRadius: '10px',
+                  border: '1px solid var(--glass-border)',
+                  textDecoration: 'none',
+                  color: 'var(--text-primary)'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <Users size={18} style={{ color: 'var(--accent-secondary)' }} />
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>Telegram Community</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Join official channel for updates</div>
+                  </div>
+                </div>
+                <ChevronRight size={16} style={{ color: 'var(--text-secondary)' }} />
+              </a>
+
+              <a
+                href="https://t.me/+YSVlbfIVF3U2NGVl"
+                target="_blank"
+                rel="noreferrer"
+                className="interactive-card"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '12px',
+                  background: 'var(--bg-secondary)',
+                  borderRadius: '10px',
+                  border: '1px solid var(--glass-border)',
+                  textDecoration: 'none',
+                  color: 'var(--text-primary)'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <AlertCircle size={18} style={{ color: 'var(--accent-primary)' }} />
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>Help Center</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Get 24/7 support & assistance</div>
+                  </div>
+                </div>
+                <ChevronRight size={16} style={{ color: 'var(--text-secondary)' }} />
+              </a>
+            </div>
+          </div>
+
+          {/* Change Password Section */}
+          <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <h3 style={{ fontSize: '1rem', fontWeight: 600 }} className="gradient-text">🔒 Change Password</h3>
+            
+            {passwordChangeMessage.text && (
+              <div style={{
+                background: passwordChangeMessage.type === 'success' ? 'rgba(0, 184, 148, 0.08)' : 'rgba(255, 118, 117, 0.08)',
+                color: passwordChangeMessage.type === 'success' ? 'var(--success)' : 'var(--error)',
+                padding: '10px', borderRadius: '8px', fontSize: '0.8rem', border: `1px solid ${passwordChangeMessage.type === 'success' ? 'rgba(0, 184, 148, 0.15)' : 'rgba(255, 118, 117, 0.15)'}`
+              }}>
+                {passwordChangeMessage.text}
+              </div>
+            )}
+
+            <form onSubmit={handleChangePasswordSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Current Password</label>
+                <input
+                  type="password"
+                  className="form-input"
+                  placeholder="Enter current password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  required
+                  style={{ fontSize: '0.85rem' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>New Password</label>
+                <input
+                  type="password"
+                  className="form-input"
+                  placeholder="Enter new password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  required
+                  style={{ fontSize: '0.85rem' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Confirm New Password</label>
+                <input
+                  type="password"
+                  className="form-input"
+                  placeholder="Confirm new password"
+                  value={confirmNewPassword}
+                  onChange={(e) => setConfirmNewPassword(e.target.value)}
+                  required
+                  style={{ fontSize: '0.85rem' }}
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="gradient-btn"
+                style={{ padding: '10px', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 600 }}
+              >
+                Update Password
+              </button>
+            </form>
+          </div>
+
+          {/* Logout Section */}
+          <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 600 }} className="gradient-text">🚪 Account Actions</h3>
+            <button
+              onClick={handleLogout}
+              className="gradient-btn"
+              style={{
+                padding: '12px',
+                borderRadius: '8px',
+                fontSize: '0.9rem',
+                fontWeight: 600,
+                background: 'linear-gradient(135deg, #ff7675 0%, #d63031 100%)',
+                color: '#fff',
+                border: 'none',
+                cursor: 'pointer'
+              }}
+            >
+              Logout from Account
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* --- TAB 6: ADMIN CONSOLE --- */}
+      {activeTab === 'admin' && (
+        <div
+          className="animate-fade-in"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '20px',
+            background: 'var(--bg-primary)',
+            color: 'var(--text-primary)',
+            padding: '24px 20px',
+            borderRadius: '6px',
+            border: '1px solid var(--glass-border)',
+            boxShadow: 'var(--glass-shadow)'
+          }}
+        >
+
+          {/* Header (Screenshot Style - Light Version) */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <span style={{ fontSize: '0.65rem', color: 'var(--accent-secondary)', letterSpacing: '2px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>• SYSTEM CONTROL BOARD</span>
+            </div>
+            <button
+              onClick={() => { setActiveTab('me'); setAdminExpandedUser(null); }}
+              style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', padding: '8px 16px', borderRadius: '4px', color: 'var(--error)', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}
+            >
+              <LogOut size={14} /> Disconnect
+            </button>
+          </div>
+
+          {/* Navigation Tabs (Screenshot Style - Light Version) */}
+          <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px', borderBottom: '1px solid var(--glass-border)' }}>
+            {[
+              { id: 'overview', label: 'Platform Overview' },
+              { id: 'users', label: 'User Management' },
+              { id: 'transactions', label: 'Transaction Resolving' },
+              { id: 'schemes', label: 'Investment Schemes' }
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setAdminActiveSubTab(tab.id);
+                  setAdminExpandedUser(null);
+                }}
+                style={{
+                  padding: '10px 18px',
+                  borderRadius: '4px',
+                  background: adminActiveSubTab === tab.id ? 'var(--accent-secondary)' : 'var(--bg-secondary)',
+                  border: '1px solid var(--glass-border)',
+                  color: adminActiveSubTab === tab.id ? '#000' : 'var(--text-secondary)',
+                  fontSize: '0.8rem',
+                  cursor: 'pointer',
+                  fontWeight: 700,
+                  whiteSpace: 'nowrap',
+                  fontFamily: 'monospace'
+                }}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Section: Platform Overview (Screenshot Style - Light Version) */}
+          {adminActiveSubTab === 'overview' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {/* Stats cards grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', padding: '16px', borderRadius: '6px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '120px' }}>
+                  <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>REGISTERED ACCOUNTS</span>
+                  <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'monospace', margin: '8px 0' }}>
+                    {adminUsers.length}
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
+                    <span>Target Clients</span>
+                    <span style={{ color: 'var(--success)', fontWeight: 600 }}>Live SQLite db</span>
+                  </div>
+                </div>
+
+                <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', padding: '16px', borderRadius: '6px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '120px' }}>
+                  <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>COMBINED USER BALANCES</span>
+                  <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'monospace', margin: '8px 0' }}>
+                    ₹{adminUsers.reduce((sum, u) => sum + u.wallet_balance, 0).toFixed(2)}
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
+                    <span>Total Liabilities</span>
+                    <span style={{ color: '#6c5ce7', fontWeight: 600 }}>Platform Capital</span>
+                  </div>
+                </div>
+
+                <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', padding: '16px', borderRadius: '6px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '120px' }}>
+                  <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>ACTIVE INVESTMENT VALUE</span>
+                  <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'monospace', margin: '8px 0' }}>
+                    ₹{adminOrders.reduce((sum, o) => sum + (o.status === 'active' && o.days_remaining > 0 ? o.price : 0), 0).toFixed(2)}
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
+                    <span>Locked In Schemes</span>
+                    <span style={{ color: 'var(--gold)', fontWeight: 600 }}>Active orders</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Heading */}
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginTop: '10px', color: 'var(--text-primary)', fontFamily: 'monospace' }}>Funding Channel Diagnostics</h3>
+
+              {/* Diagnostics Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--success)', padding: '20px', borderRadius: '6px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
+                  <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>COMPLETED DEPOSITS</span>
+                  <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--success)', fontFamily: 'monospace', margin: '6px 0' }}>
+                    ₹{adminTransactions.reduce((sum, t) => sum + (t.type === 'deposit' && t.status === 'completed' ? t.amount : 0), 0).toFixed(2)}
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
+                    <span>Pending Deposits</span>
+                    <span>{adminTransactions.filter(t => t.type === 'deposit' && t.status === 'pending').length} reqs (₹{adminTransactions.filter(t => t.type === 'deposit' && t.status === 'pending').reduce((sum, t) => sum + t.amount, 0).toFixed(0)})</span>
+                  </div>
+                </div>
+
+                <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--error)', padding: '20px', borderRadius: '6px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
+                  <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>SETTLED WITHDRAWALS</span>
+                  <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--error)', fontFamily: 'monospace', margin: '6px 0' }}>
+                    ₹{Math.abs(adminTransactions.reduce((sum, t) => sum + (t.type === 'withdrawal' && t.status === 'completed' ? t.amount : 0), 0)).toFixed(2)}
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
+                    <span>Pending Cashouts</span>
+                    <span>{adminTransactions.filter(t => t.type === 'withdrawal' && t.status === 'pending').length} reqs (₹{Math.abs(adminTransactions.filter(t => t.type === 'withdrawal' && t.status === 'pending').reduce((sum, t) => sum + t.amount, 0)).toFixed(0)})</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Administrative Protocols Footer Box */}
+              <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', padding: '16px', borderRadius: '6px', display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', fontWeight: 700, color: '#6c5ce7', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  🛡️ Administrative Protocols
+                </div>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+                  This dashboard connects directly to the server's local SQLite database. System actions such as balance adjustments, deposit completions, and withdrawal resolutions take immediate database effect and trigger appropriate ledger entries. Handle user records with high security diligence.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Section: Approve Transactions (Deposits / Withdrawals) */}
+          {adminActiveSubTab === 'transactions' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)' }}>Manage Deposits & Withdrawals</h3>
+
+              {/* Sub-Filters Selector */}
+              <div style={{ display: 'flex', gap: '6px', marginBottom: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
+                {[
+                  { id: 'pending', label: 'Pending Resolve' },
+                  { id: 'withdrawals', label: 'Withdrawal Requests' },
+                  { id: 'deposits', label: 'Failed Orders' },
+                  { id: 'cancelled', label: 'Cancelled Log' }
+                ].map(sub => (
+                  <button
+                    key={sub.id}
+                    onClick={() => setAdminTxFilter(sub.id)}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: '4px',
+                      background: adminTxFilter === sub.id ? 'var(--accent-secondary)' : 'var(--bg-secondary)',
+                      color: adminTxFilter === sub.id ? '#000' : 'var(--text-primary)',
+                      border: '1px solid var(--glass-border)',
+                      fontSize: '0.75rem',
+                      cursor: 'pointer',
+                      fontWeight: 600,
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    {sub.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Search Bar */}
+              <div style={{ position: 'relative', marginBottom: '6px' }}>
+                <input
+                  type="text"
+                  placeholder="🔍 Search by Support ID, Username, or Phone..."
+                  value={adminSearchQuery}
+                  onChange={(e) => setAdminSearchQuery(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '10px 14px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--glass-border)',
+                    background: 'var(--bg-secondary)',
+                    color: 'var(--text-primary)',
+                    fontSize: '0.85rem'
+                  }}
+                />
+              </div>
+
+              {(() => {
+                let filtered = [];
+                if (adminTxFilter === 'pending') {
+                  filtered = adminTransactions.filter(t => t.status === 'pending');
+                } else if (adminTxFilter === 'withdrawals') {
+                  filtered = adminTransactions.filter(t => t.type === 'withdrawal');
+                } else if (adminTxFilter === 'deposits') {
+                  // This is Failed Orders
+                  filtered = adminOrders.filter(o => o.status === 'failed');
+                } else if (adminTxFilter === 'cancelled') {
+                  // This is Cancelled/Rejected Orders
+                  filtered = adminOrders.filter(o => o.status === 'cancelled' || o.status === 'rejected');
+                }
+
+                if (adminSearchQuery.trim() !== '') {
+                  const query = adminSearchQuery.toLowerCase().trim();
+                  filtered = filtered.filter(item => {
+                    const supportId = (item.user_support_id || '').toLowerCase();
+                    const name = (item.user_name || '').toLowerCase();
+                    const phone = (item.user_phone || '').toLowerCase();
+                    return supportId.includes(query) || name.includes(query) || phone.includes(query);
+                  });
+                }
+
+                if (filtered.length === 0) {
+                  return (
+                    <div className="glass-panel" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem', background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', borderRadius: '6px' }}>
+                      No items match this filter or search.
+                    </div>
+                  );
+                }
+
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {filtered.map((item) => {
+                      const isOrder = !!item.scheme_name;
+                      if (isOrder) {
+                        const isExpanded = adminExpandedOrderId === item.id;
+                        return (
+                          <div
+                            key={item.id}
+                            className="glass-panel interactive-card"
+                            onClick={() => setAdminExpandedOrderId(isExpanded ? null : item.id)}
+                            style={{
+                              padding: '16px',
+                              cursor: 'pointer',
+                              background: 'var(--bg-secondary)',
+                              borderLeft: '3px solid var(--error)',
+                              borderRadius: '6px'
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <h4 style={{ fontWeight: 600 }}>{item.scheme_name}</h4>
+                                <span style={{
+                                  fontSize: '0.65rem',
+                                  background: 'rgba(255, 118, 117, 0.1)',
+                                  color: 'var(--error)',
+                                  padding: '1px 6px',
+                                  borderRadius: '4px',
+                                  textTransform: 'capitalize',
+                                  fontWeight: 600
+                                }}>{item.status}</span>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <strong style={{ color: 'var(--text-primary)' }}>₹{item.price}</strong>
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                                  {isExpanded ? '▲' : '▼'}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                              User: <strong>{item.user_name}</strong> ({item.user_phone}) {item.user_support_id && <>• ID: <strong style={{ color: '#a29bfe' }}>{item.user_support_id}</strong></>}
+                            </div>
+
+                            {isExpanded && (
+                              <div
+                                className="animate-fade-in"
+                                style={{ marginTop: '12px', borderTop: '1px solid var(--glass-border)', paddingTop: '12px' }}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '12px' }}>
+                                  <div>Submitted UTR: <strong style={{ color: 'var(--text-primary)', fontSize: '0.85rem' }}>{item.utr}</strong></div>
+                                  <div>Date: {new Date(item.created_at).toLocaleString()}</div>
+                                </div>
+                                {item.screenshot && (
+                                  <div style={{ marginTop: '10px' }}>
+                                    <span style={{ fontSize: '0.75rem', color: '#a0a8c0', display: 'block', marginBottom: '4px' }}>Submitted Receipt:</span>
+                                    <img
+                                      src={item.screenshot}
+                                      alt="Receipt"
+                                      onClick={() => {
+                                        const w = window.open();
+                                        w.document.write(`<img src="${item.screenshot}" style="max-width:100%; max-height:100vh; display:block; margin:auto;">`);
+                                      }}
+                                      style={{ maxWidth: '100%', maxHeight: '180px', borderRadius: '6px', cursor: 'pointer' }}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div key={item.id} className="glass-panel" style={{ padding: '16px', background: 'var(--bg-secondary)', borderTop: '1px solid var(--glass-border)', borderRight: '1px solid var(--glass-border)', borderBottom: '1px solid var(--glass-border)', borderLeft: item.type === 'deposit' ? '3px solid var(--success)' : '3px solid var(--error)', borderRadius: '6px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span style={{ fontWeight: 600, fontSize: '0.9rem', textTransform: 'capitalize', color: 'var(--text-primary)' }}>{item.type}</span>
+                              <span style={{
+                                fontSize: '0.65rem',
+                                background: item.status === 'completed' ? 'rgba(0, 184, 148, 0.1)' :
+                                  item.status === 'pending' ? 'rgba(253, 203, 110, 0.1)' : 'rgba(255, 118, 117, 0.1)',
+                                color: item.status === 'completed' ? 'var(--success)' :
+                                  item.status === 'pending' ? 'var(--gold)' : 'var(--error)',
+                                padding: '1px 6px',
+                                borderRadius: '4px',
+                                textTransform: 'capitalize',
+                                fontWeight: 600
+                              }}>{item.status}</span>
+                            </div>
+                            <strong style={{ color: item.type === 'deposit' ? 'var(--success)' : 'var(--error)' }}>₹{Math.abs(item.amount).toFixed(2)}</strong>
+                          </div>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: item.status === 'pending' ? '12px' : '0px' }}>
+                            <div>User: <strong>{item.user_name}</strong> ({item.user_phone}) {item.user_support_id && <>• ID: <strong style={{ color: '#a29bfe' }}>{item.user_support_id}</strong></>}</div>
+                            <div>Date: {new Date(item.created_at).toLocaleString()}</div>
+                          </div>
+
+                          {item.status === 'pending' && (
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                              <button
+                                onClick={() => handleAdminAction('approveTransaction', { transactionId: item.id })}
+                                className="gradient-btn"
+                                style={{ flex: 1, padding: '8px', borderRadius: '4px', fontSize: '0.8rem' }}
+                              >
+                                Approve
+                              </button>
+                              <button
+                                onClick={() => handleAdminAction('rejectTransaction', { transactionId: item.id })}
+                                style={{ flex: 1, padding: '8px', borderRadius: '4px', background: 'none', border: '1px solid var(--error)', color: 'var(--error)', fontSize: '0.8rem', cursor: 'pointer' }}
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
+          {/* Section: Approve Orders (UTR Scheme subscriptions) */}
+          {adminActiveSubTab === 'orders' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 600 }}>Verify Scheme Purchases</h3>
+
+              {/* Sub-Filters Selector */}
+              <div style={{ display: 'flex', gap: '6px', marginBottom: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
+                {[
+                  { id: 'pending', label: 'Pending Verification' },
+                  { id: 'active', label: 'Active/Completed Schemes' },
+                  { id: 'cancelled', label: 'Cancelled/Rejected' }
+                ].map(sub => (
+                  <button
+                    key={sub.id}
+                    onClick={() => setAdminOrderFilter(sub.id)}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: '6px',
+                      background: adminOrderFilter === sub.id ? 'var(--accent-secondary)' : 'var(--bg-tertiary)',
+                      color: adminOrderFilter === sub.id ? '#000' : 'var(--text-primary)',
+                      border: '1px solid var(--glass-border)',
+                      fontSize: '0.75rem',
+                      cursor: 'pointer',
+                      fontWeight: 600,
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    {sub.label}
+                  </button>
+                ))}
+              </div>
+
+              {(() => {
+                let filtered = [];
+                if (adminOrderFilter === 'pending') {
+                  filtered = adminOrders.filter(o => o.status === 'pending');
+                } else if (adminOrderFilter === 'active') {
+                  filtered = adminOrders.filter(o => o.status === 'active');
+                } else if (adminOrderFilter === 'cancelled') {
+                  filtered = adminOrders.filter(o => o.status === 'rejected' || o.status === 'cancelled');
+                }
+
+                if (filtered.length === 0) {
+                  return (
+                    <div className="glass-panel" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                      No orders match this filter.
+                    </div>
+                  );
+                }
+
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {filtered.map((order) => {
+                      const isExpanded = adminExpandedOrderId === order.id;
+                      return (
+                        <div
+                          key={order.id}
+                          className="glass-panel interactive-card"
+                          onClick={() => setAdminExpandedOrderId(isExpanded ? null : order.id)}
+                          style={{
+                            padding: '16px',
+                            cursor: 'pointer',
+                            borderLeft: order.status === 'pending' ? '3px solid var(--gold)' : order.status === 'active' ? '3px solid var(--success)' : '3px solid var(--error)'
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <h4 style={{ fontWeight: 600 }}>{order.scheme_name}</h4>
+                              <span style={{
+                                fontSize: '0.65rem',
+                                background: order.status === 'active' ? 'rgba(0, 184, 148, 0.1)' :
+                                  order.status === 'pending' ? 'rgba(253, 203, 110, 0.1)' : 'rgba(255, 118, 117, 0.1)',
+                                color: order.status === 'active' ? 'var(--success)' :
+                                  order.status === 'pending' ? 'var(--gold)' : 'var(--error)',
+                                padding: '1px 6px',
+                                borderRadius: '4px',
+                                textTransform: 'capitalize',
+                                fontWeight: 600
+                              }}>{order.status}</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <strong style={{ color: 'var(--accent-secondary)' }}>₹{order.price}</strong>
+                              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                                {isExpanded ? '▲' : '▼'}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                            User: <strong>{order.user_name}</strong> ({order.user_phone})
+                          </div>
+
+                          {isExpanded ? (
+                            <div
+                              className="animate-fade-in"
+                              style={{ marginTop: '12px', borderTop: '1px solid var(--glass-border)', paddingTop: '12px' }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '12px' }}>
+                                <div>Submitted UTR: <strong style={{ color: 'var(--text-primary)', fontSize: '0.85rem' }}>{order.utr}</strong></div>
+                                <div>Date: {new Date(order.created_at).toLocaleString()}</div>
+                                {order.days_remaining !== undefined && (
+                                  <div>Days Remaining: <strong>{order.days_remaining} Days</strong></div>
+                                )}
+                              </div>
+
+                              {/* Screenshot displaying */}
+                              {order.screenshot && (
+                                <div style={{ marginTop: '10px', marginBottom: '12px' }}>
+                                  <span style={{ fontSize: '0.75rem', color: '#a0a8c0', display: 'block', marginBottom: '4px' }}>Submitted Receipt Screenshot:</span>
+                                  <div style={{ position: 'relative', width: '100%', maxHeight: '180px', overflow: 'hidden', borderRadius: '8px', border: '1px solid #202736', cursor: 'pointer' }}>
+                                    <img
+                                      src={order.screenshot}
+                                      alt="Payment Receipt"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const w = window.open();
+                                        w.document.write(`<img src="${order.screenshot}" style="max-width:100%; max-height:100vh; display:block; margin:auto;">`);
+                                        w.document.title = "Payment Receipt Screenshot";
+                                      }}
+                                      style={{ width: '100%', objectFit: 'contain', maxHeight: '180px' }}
+                                    />
+                                  </div>
+                                  <span style={{ fontSize: '0.7rem', color: 'var(--accent-secondary)', display: 'block', textAlign: 'center', marginTop: '4px' }}>(Click image to view full receipt)</span>
+                                </div>
+                              )}
+
+                              {order.status === 'pending' && (
+                                <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleApproveOrder(order.id, 'approve'); }}
+                                    className="gradient-btn"
+                                    style={{ flex: 1, padding: '10px', borderRadius: '8px', fontSize: '0.85rem' }}
+                                  >
+                                    Approve
+                                  </button>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleApproveOrder(order.id, 'reject'); }}
+                                    style={{ flex: 1, padding: '10px', borderRadius: '8px', background: 'none', border: '1px solid var(--error)', color: 'var(--error)', fontSize: '0.85rem', cursor: 'pointer' }}
+                                  >
+                                    Reject
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div style={{ fontSize: '0.75rem', color: 'var(--accent-secondary)', marginTop: '6px', fontStyle: 'italic' }}>
+                              ⚡ Click to view screenshot and verification details
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
+          {/* Section: Users list */}
+          {adminActiveSubTab === 'users' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)' }}>Registered Users</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {adminUsers.map((u) => {
+                  const isExpanded = adminExpandedUser === u.id;
+                  return (
+                    <div
+                      key={u.id}
+                      className="glass-panel interactive-card"
+                      onClick={() => {
+                        if (isExpanded) {
+                          setAdminExpandedUser(null);
+                          setAdminUserSubView(null);
+                        } else {
+                          setAdminExpandedUser(u.id);
+                          setAdminUserSubView(null);
+                        }
+                      }}
+                      style={{
+                        padding: '16px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '12px',
+                        background: 'var(--bg-secondary)',
+                        border: isExpanded ? '1px solid var(--accent-secondary)' : '1px solid var(--glass-border)',
+                        borderRadius: '6px'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                             {u.username}
+                             {u.is_suspended && (
+                               <span style={{ fontSize: '0.6rem', background: 'rgba(255,118,117,0.15)', color: 'var(--error)', padding: '2px 7px', borderRadius: '4px', fontWeight: 700, letterSpacing: '0.5px' }}>SUSPENDED</span>
+                             )}
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>{u.phone} • {u.email}</div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontWeight: 700, color: 'var(--success)', fontSize: '1rem' }}>₹{u.wallet_balance.toFixed(2)}</div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '2px' }}>Ref: <strong>{u.referral_code}</strong></div>
+                          {u.support_id && <div style={{ fontSize: '0.65rem', color: '#a29bfe', marginTop: '2px', fontFamily: 'monospace', letterSpacing: '1px' }}>ID: {u.support_id}</div>}
+                        </div>
+                      </div>
+
+                      {isExpanded && (
+                        <div
+                          className="animate-fade-in"
+                          onClick={(e) => e.stopPropagation()} // Prevent collapse on detail content click
+                          style={{ borderTop: '1px solid var(--glass-border)', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '0.8rem' }}
+                        >
+                          {/* Suspend / Unsuspend Action */}
+                          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                            <button
+                              onClick={() => handleAdminAction(u.is_suspended ? 'unsuspendUser' : 'suspendUser', { userId: u.id })}
+                              style={{
+                                padding: '6px 14px',
+                                borderRadius: '6px',
+                                border: 'none',
+                                cursor: 'pointer',
+                                fontSize: '0.75rem',
+                                fontWeight: 700,
+                                background: u.is_suspended ? 'rgba(0,184,148,0.15)' : 'rgba(255,118,117,0.15)',
+                                color: u.is_suspended ? 'var(--success)' : 'var(--error)'
+                              }}
+                            >
+                              {u.is_suspended ? '✅ Reactivate Account' : '🚫 Suspend Account'}
+                            </button>
+                          </div>
+
+                          {/* Financial Metrics */}
+                          <div>
+                            <div style={{ fontWeight: 600, color: 'var(--accent-secondary)', marginBottom: '8px', fontSize: '0.85rem' }}>Financial Overview (Click a metric to view logs)</div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px' }}>
+                              <div
+                                onClick={() => setAdminUserSubView(adminUserSubView === 'deposits' ? null : 'deposits')}
+                                style={{ display: 'flex', justifyContent: 'space-between', cursor: 'pointer', padding: '4px 6px', borderRadius: '4px', background: adminUserSubView === 'deposits' ? 'rgba(9, 132, 227, 0.1)' : 'transparent', border: adminUserSubView === 'deposits' ? '1px solid rgba(9, 132, 227, 0.2)' : '1px solid transparent' }}
+                              >
+                                <span style={{ color: 'var(--text-secondary)' }}>Total Deposited:</span>
+                                <strong style={{ color: 'var(--accent-secondary)', textDecoration: 'underline' }}>₹{u.stats.depositTotal.toFixed(2)}</strong>
+                              </div>
+                              <div
+                                onClick={() => setAdminUserSubView(adminUserSubView === 'withdrawals' ? null : 'withdrawals')}
+                                style={{ display: 'flex', justifyContent: 'space-between', cursor: 'pointer', padding: '4px 6px', borderRadius: '4px', background: adminUserSubView === 'withdrawals' ? 'rgba(214, 48, 49, 0.1)' : 'transparent', border: adminUserSubView === 'withdrawals' ? '1px solid rgba(214, 48, 49, 0.2)' : '1px solid transparent' }}
+                              >
+                                <span style={{ color: 'var(--text-secondary)' }}>Total Withdrawn:</span>
+                                <strong style={{ color: 'var(--error)', textDecoration: 'underline' }}>₹{u.stats.withdrawalTotal.toFixed(2)}</strong>
+                              </div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 6px' }}>
+                                <span style={{ color: 'var(--text-secondary)' }}>Pending Cashout:</span>
+                                <strong style={{ color: 'var(--gold)' }}>₹{u.stats.pendingWithdrawal.toFixed(2)}</strong>
+                              </div>
+                              <div
+                                onClick={() => setAdminUserSubView(adminUserSubView === 'orders' ? null : 'orders')}
+                                style={{ display: 'flex', justifyContent: 'space-between', cursor: 'pointer', padding: '4px 6px', borderRadius: '4px', background: adminUserSubView === 'orders' ? 'rgba(0, 184, 148, 0.1)' : 'transparent', border: adminUserSubView === 'orders' ? '1px solid rgba(0, 184, 148, 0.2)' : '1px solid transparent' }}
+                              >
+                                <span style={{ color: 'var(--text-secondary)' }}>Active Investment:</span>
+                                <strong style={{ color: 'var(--success)', textDecoration: 'underline' }}>₹{u.stats.activeInvestment.toFixed(2)}</strong>
+                              </div>
+                              <div
+                                onClick={() => setAdminUserSubView(adminUserSubView === 'commissions' ? null : 'commissions')}
+                                style={{ display: 'flex', justifyContent: 'space-between', cursor: 'pointer', padding: '4px 6px', borderRadius: '4px', background: adminUserSubView === 'commissions' ? 'rgba(108, 92, 231, 0.1)' : 'transparent', border: adminUserSubView === 'commissions' ? '1px solid rgba(108, 92, 231, 0.2)' : '1px solid transparent' }}
+                              >
+                                <span style={{ color: 'var(--text-secondary)' }}>Referral Commissions:</span>
+                                <strong style={{ color: 'var(--success)', textDecoration: 'underline' }}>₹{u.stats.commissionTotal.toFixed(2)}</strong>
+                              </div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 6px' }}>
+                                <span style={{ color: 'var(--text-secondary)' }}>Referred By:</span>
+                                <strong>{u.referrerName || 'None'}</strong>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Detailed Logs Subview inside Expanded User */}
+                          {adminUserSubView && (
+                            <div style={{ padding: '12px', background: 'var(--bg-tertiary)', borderRadius: '6px', border: '1px solid var(--glass-border)' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', borderBottom: '1px solid var(--glass-border)', paddingBottom: '4px' }}>
+                                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--accent-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                  {adminUserSubView === 'deposits' ? 'Deposit Logs' :
+                                    adminUserSubView === 'withdrawals' ? 'Withdrawal Logs' :
+                                      adminUserSubView === 'orders' ? 'Purchased Schemes / Orders' : 'Referral Commission Logs'}
+                                </span>
+                                <button
+                                  onClick={() => setAdminUserSubView(null)}
+                                  style={{ background: 'none', border: 'none', color: 'var(--error)', fontSize: '0.7rem', cursor: 'pointer', fontWeight: 600 }}
+                                >
+                                  Close Detail
+                                </button>
+                              </div>
+
+                              {/* Render matching records */}
+                              {(() => {
+                                if (adminUserSubView === 'deposits') {
+                                  const list = adminTransactions.filter(t => t.user_id === u.id && t.type === 'deposit');
+                                  if (list.length === 0) return <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '8px' }}>No deposit logs found.</div>;
+                                  return (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '180px', overflowY: 'auto' }}>
+                                      {list.map(t => (
+                                        <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', borderBottom: '1px solid var(--glass-border)', paddingBottom: '4px', color: 'var(--text-primary)' }}>
+                                          <span>{new Date(t.created_at).toLocaleDateString()}</span>
+                                          <span style={{ color: t.status === 'completed' ? 'var(--success)' : t.status === 'pending' ? 'var(--gold)' : 'var(--error)', textTransform: 'capitalize', fontWeight: 600 }}>
+                                            {t.status}
+                                          </span>
+                                          <strong>₹{t.amount.toFixed(2)}</strong>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  );
+                                }
+
+                                if (adminUserSubView === 'withdrawals') {
+                                  const list = adminTransactions.filter(t => t.user_id === u.id && t.type === 'withdrawal');
+                                  if (list.length === 0) return <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '8px' }}>No withdrawal logs found.</div>;
+                                  return (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '180px', overflowY: 'auto' }}>
+                                      {list.map(t => (
+                                        <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', borderBottom: '1px solid var(--glass-border)', paddingBottom: '4px', color: 'var(--text-primary)' }}>
+                                          <span>{new Date(t.created_at).toLocaleDateString()}</span>
+                                          <span style={{ color: t.status === 'completed' ? 'var(--success)' : t.status === 'pending' ? 'var(--gold)' : 'var(--error)', textTransform: 'capitalize', fontWeight: 600 }}>
+                                            {t.status}
+                                          </span>
+                                          <strong>₹{Math.abs(t.amount).toFixed(2)}</strong>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  );
+                                }
+
+                                if (adminUserSubView === 'orders') {
+                                  const list = adminOrders.filter(o => o.user_id === u.id);
+                                  if (list.length === 0) return <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '8px' }}>No purchased schemes found.</div>;
+                                  return (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '200px', overflowY: 'auto' }}>
+                                      {list.map(o => (
+                                        <div key={o.id} style={{ display: 'flex', flexDirection: 'column', fontSize: '0.7rem', borderBottom: '1px solid var(--glass-border)', paddingBottom: '6px', gap: '2px', color: 'var(--text-primary)' }}>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600 }}>
+                                            <span style={{ color: 'var(--text-primary)' }}>{o.scheme_name}</span>
+                                            <span style={{ color: 'var(--accent-secondary)' }}>₹{o.price}</span>
+                                          </div>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)', fontSize: '0.65rem' }}>
+                                            <span>Date: {new Date(o.created_at).toLocaleDateString()}</span>
+                                            <span>Status: <strong style={{ color: o.status === 'active' ? 'var(--success)' : o.status === 'pending' ? 'var(--gold)' : o.status === 'error', textTransform: 'capitalize' }}>{o.status}</strong></span>
+                                            <span>Days Left: {o.days_remaining}</span>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  );
+                                }
+
+                                if (adminUserSubView === 'commissions') {
+                                  const list = adminTransactions.filter(t => t.user_id === u.id && (t.type === 'referral_commission_l1' || t.type === 'referral_commission_l2'));
+                                  if (list.length === 0) return <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '8px' }}>No commission records found.</div>;
+                                  return (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '180px', overflowY: 'auto' }}>
+                                      {list.map(t => (
+                                        <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', borderBottom: '1px solid var(--glass-border)', paddingBottom: '4px', color: 'var(--text-primary)' }}>
+                                          <span>{new Date(t.created_at).toLocaleDateString()}</span>
+                                          <span style={{ color: 'var(--success)', textTransform: 'uppercase', fontSize: '0.6rem', fontWeight: 700 }}>
+                                            {t.type === 'referral_commission_l1' ? 'L1 Direct' : 'L2 Indirect'}
+                                          </span>
+                                          <strong>₹{t.amount.toFixed(2)}</strong>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  );
+                                }
+
+                                return null;
+                              })()}
+                            </div>
+                          )}
+
+                          {/* Bank details */}
+                          <div style={{ background: 'var(--bg-tertiary)', padding: '10px', borderRadius: '6px', border: '1px solid var(--glass-border)' }}>
+                            <div style={{ fontWeight: 600, color: 'var(--accent-primary)', marginBottom: '6px', fontSize: '0.85rem' }}>Linked Settlement Bank Account</div>
+                            {u.bankDetails ? (
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 12px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                                <div>Name: <strong style={{ color: 'var(--text-primary)' }}>{u.bankDetails.accountName}</strong></div>
+                                <div>A/C: <strong style={{ color: 'var(--text-primary)' }}>{u.bankDetails.accountNumber}</strong></div>
+                                <div>IFSC: <strong style={{ color: 'var(--text-primary)' }}>{u.bankDetails.ifsc}</strong></div>
+                                <div>UPI ID: <strong style={{ color: 'var(--text-primary)' }}>{u.bankDetails.upiId}</strong></div>
+                              </div>
+                            ) : (
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontStyle: 'italic' }}>
+                                No bank account linked by this user yet.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Section: Investment Schemes (Orders + Add New Scheme Form) */}
+          {adminActiveSubTab === 'schemes' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+
+              {/* Order verification subcategory */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)' }}>Verify Scheme Purchases</h3>
+
+                {(() => {
+                  const filtered = adminOrders.filter(o => o.status === 'pending');
+
+                  if (filtered.length === 0) {
+                    return (
+                      <div className="glass-panel" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem', background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', borderRadius: '6px' }}>
+                        No pending scheme purchases to verify.
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {filtered.map((order) => {
+                        const isExpanded = adminExpandedOrderId === order.id;
+                        return (
+                          <div
+                            key={order.id}
+                            className="glass-panel interactive-card"
+                            onClick={() => setAdminExpandedOrderId(isExpanded ? null : order.id)}
+                            style={{
+                              padding: '16px',
+                              cursor: 'pointer',
+                              background: 'var(--bg-secondary)',
+                              borderLeft: order.status === 'pending' ? '3px solid var(--gold)' : order.status === 'active' ? '3px solid var(--success)' : '3px solid var(--error)',
+                              borderTop: '1px solid var(--glass-border)',
+                              borderRight: '1px solid var(--glass-border)',
+                              borderBottom: '1px solid var(--glass-border)',
+                              borderRadius: '6px'
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <h4 style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{order.scheme_name}</h4>
+                                <span style={{
+                                  fontSize: '0.65rem',
+                                  background: order.status === 'active' ? 'rgba(0, 184, 148, 0.1)' :
+                                    order.status === 'pending' ? 'rgba(253, 203, 110, 0.1)' : 'rgba(255, 118, 117, 0.1)',
+                                  color: order.status === 'active' ? 'var(--success)' :
+                                    order.status === 'pending' ? 'var(--gold)' : 'var(--error)',
+                                  padding: '1px 6px',
+                                  borderRadius: '4px',
+                                  textTransform: 'capitalize',
+                                  fontWeight: 600
+                                }}>{order.status}</span>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <strong style={{ color: 'var(--accent-secondary)' }}>₹{order.price}</strong>
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                                  {isExpanded ? '▲' : '▼'}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                              User: <strong>{order.user_name}</strong> ({order.user_phone})
+                            </div>
+
+                            {isExpanded ? (
+                              <div
+                                className="animate-fade-in"
+                                style={{ marginTop: '12px', borderTop: '1px solid var(--glass-border)', paddingTop: '12px' }}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '12px' }}>
+                                  <div>Submitted UTR: <strong style={{ color: 'var(--text-primary)', fontSize: '0.85rem' }}>{order.utr}</strong></div>
+                                  <div>Date: {new Date(order.created_at).toLocaleString()}</div>
+                                  {order.days_remaining !== undefined && (
+                                    <div>Days Remaining: <strong>{order.days_remaining} Days</strong></div>
+                                  )}
+                                </div>
+
+                                {/* Screenshot displaying */}
+                                {order.screenshot && (
+                                  <div style={{ marginTop: '10px', marginBottom: '12px' }}>
+                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Submitted Receipt Screenshot:</span>
+                                    <div style={{ position: 'relative', width: '100%', maxHeight: '180px', overflow: 'hidden', borderRadius: '6px', border: '1px solid var(--glass-border)', cursor: 'pointer' }}>
+                                      <img
+                                        src={order.screenshot}
+                                        alt="Payment Receipt"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const w = window.open();
+                                          w.document.write(`<img src="${order.screenshot}" style="max-width:100%; max-height:100vh; display:block; margin:auto;">`);
+                                          w.document.title = "Payment Receipt Screenshot";
+                                        }}
+                                        style={{ width: '100%', objectFit: 'contain', maxHeight: '180px' }}
+                                      />
+                                    </div>
+                                    <span style={{ fontSize: '0.7rem', color: 'var(--accent-secondary)', display: 'block', textAlign: 'center', marginTop: '4px' }}>(Click image to view full receipt)</span>
+                                  </div>
+                                )}
+
+                                {order.status === 'pending' && (
+                                  <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); handleApproveOrder(order.id, 'approve'); }}
+                                      className="gradient-btn"
+                                      style={{ flex: 1, padding: '10px', borderRadius: '4px', fontSize: '0.85rem' }}
+                                    >
+                                      Approve
+                                    </button>
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); handleApproveOrder(order.id, 'reject'); }}
+                                      style={{ flex: 1, padding: '10px', borderRadius: '4px', background: 'none', border: '1px solid var(--error)', color: 'var(--error)', fontSize: '0.85rem', cursor: 'pointer' }}
+                                    >
+                                      Reject
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <div style={{ fontSize: '0.75rem', color: 'var(--accent-secondary)', marginTop: '6px', fontStyle: 'italic' }}>
+                                ⚡ Click to view screenshot and verification details
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              <hr style={{ border: 'none', borderTop: '1px solid var(--glass-border)', margin: '10px 0' }} />
+
+              {/* Add New Scheme Publisher Form / Edit Form */}
+              <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', padding: '20px', borderRadius: '6px' }}>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '16px', color: 'var(--text-primary)' }}>
+                  {editSchemeId ? `Edit Investment Package (ID: ${editSchemeId})` : 'Add New Investment Package'}
+                </h3>
+                <form onSubmit={handleAddSchemeSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Scheme Name</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="e.g. Diamond VIP Plan"
+                      value={newSchemeName}
+                      onChange={(e) => setNewSchemeName(e.target.value)}
+                      required
+                      style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', color: 'var(--text-primary)', borderRadius: '4px' }}
+                    />
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Price (₹)</label>
+                      <input
+                        type="number"
+                        className="form-input"
+                        placeholder="e.g. 5000"
+                        value={newSchemePrice}
+                        onChange={(e) => setNewSchemePrice(e.target.value)}
+                        required
+                        style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', color: 'var(--text-primary)', borderRadius: '4px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Daily Rate (%)</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        className="form-input"
+                        placeholder="e.g. 4 for 4%"
+                        value={newSchemeRate}
+                        onChange={(e) => setNewSchemeRate(e.target.value)}
+                        required
+                        style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', color: 'var(--text-primary)', borderRadius: '4px' }}
+                      />
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Duration (Days)</label>
+                      <input
+                        type="number"
+                        className="form-input"
+                        placeholder="e.g. 10"
+                        value={newSchemeDays}
+                        onChange={(e) => setNewSchemeDays(e.target.value)}
+                        required
+                        style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', color: 'var(--text-primary)', borderRadius: '4px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Total Return (Calculated)</label>
+                      <input
+                        type="number"
+                        className="form-input"
+                        placeholder="Total return amount"
+                        value={newSchemeTotalReturn}
+                        readOnly
+                        required
+                        style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', color: 'var(--success)', fontWeight: 700, borderRadius: '4px' }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Live Profit Preview Calculations */}
+                  {parseFloat(newSchemePrice) > 0 && parseFloat(newSchemeRate) > 0 && parseInt(newSchemeDays) > 0 && (
+                    <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', padding: '12px', borderRadius: '6px', marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.75rem' }}>
+                      <div style={{ fontWeight: 600, color: 'var(--accent-secondary)', marginBottom: '4px' }}>Package Profit Calculations:</div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Daily Payout profit:</span>
+                        <strong style={{ color: 'var(--text-primary)' }}>₹{(parseFloat(newSchemePrice) * (parseFloat(newSchemeRate) / 100)).toFixed(2)}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Total Payout profit ({newSchemeDays} days):</span>
+                        <strong style={{ color: 'var(--text-primary)' }}>₹{(parseFloat(newSchemePrice) * (parseFloat(newSchemeRate) / 100) * parseInt(newSchemeDays)).toFixed(2)}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--glass-border)', paddingTop: '6px' }}>
+                        <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>Total Return (calculated):</span>
+                        <strong style={{ color: 'var(--success)', fontSize: '0.85rem' }}>₹{newSchemeTotalReturn}</strong>
+                      </div>
+                    </div>
+                  )}
+
+                  {editSchemeId ? (
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                      <button type="submit" className="gradient-btn" style={{ flex: 1, padding: '12px', borderRadius: '4px', fontSize: '0.9rem' }}>
+                        Update Scheme
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditSchemeId(null);
+                          setNewSchemeName('');
+                          setNewSchemePrice('');
+                          setNewSchemeRate('');
+                          setNewSchemeDays('');
+                          setNewSchemeTotalReturn('');
+                        }}
+                        style={{ flex: 1, padding: '12px', borderRadius: '4px', fontSize: '0.9rem', background: 'none', border: '1px solid var(--text-secondary)', color: 'var(--text-primary)', cursor: 'pointer' }}
+                      >
+                        Cancel Edit
+                      </button>
+                    </div>
+                  ) : (
+                    <button type="submit" className="gradient-btn" style={{ padding: '12px', borderRadius: '4px', fontSize: '0.9rem', marginTop: '8px', width: '100%' }}>
+                      Publish Scheme
+                    </button>
+                  )}
+                </form>
+              </div>
+
+              <hr style={{ border: 'none', borderTop: '1px solid var(--glass-border)', margin: '10px 0' }} />
+
+              {/* All Published Investment Schemes */}
+              <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', padding: '20px', borderRadius: '6px' }}>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '16px', color: 'var(--text-primary)' }}>All Published Investment Schemes</h3>
+
+                {adminSchemes.length === 0 ? (
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '12px' }}>
+                    No schemes published yet.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '350px', overflowY: 'auto' }}>
+                    {adminSchemes.map((s) => (
+                      <div
+                        key={s.id}
+                        style={{
+                          padding: '12px',
+                          background: 'var(--bg-tertiary)',
+                          border: '1px solid var(--glass-border)',
+                          borderRadius: '4px',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center'
+                        }}
+                      >
+                        <div>
+                          <strong style={{ color: 'var(--text-primary)', fontSize: '0.9rem', display: 'block' }}>{s.name}</strong>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px', display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
+                            <span>Price: <strong>₹{s.price}</strong></span>
+                            <span>Daily Rate: <strong>{(s.daily_return_rate * 100).toFixed(1)}%</strong></span>
+                            <span>Duration: <strong>{s.days} Days</strong></span>
+                            <span>Total Return: <strong>₹{s.total_return}</strong></span>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button
+                            onClick={() => {
+                              setEditSchemeId(s.id);
+                              setNewSchemeName(s.name);
+                              setNewSchemePrice(s.price.toString());
+                              setNewSchemeRate((s.daily_return_rate * 100).toFixed(1));
+                              setNewSchemeDays(s.days.toString());
+                              setNewSchemeTotalReturn(s.total_return.toString());
+                            }}
+                            style={{
+                              background: 'none',
+                              border: '1px solid var(--accent-secondary)',
+                              color: 'var(--accent-secondary)',
+                              padding: '6px 12px',
+                              borderRadius: '4px',
+                              cursor: 'pointer',
+                              fontSize: '0.75rem',
+                              fontWeight: 600
+                            }}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDeleteScheme(s.id)}
+                            style={{
+                              background: 'none',
+                              border: '1px solid var(--error)',
+                              color: 'var(--error)',
+                              padding: '6px 12px',
+                              borderRadius: '4px',
+                              cursor: 'pointer',
+                              fontSize: '0.75rem',
+                              fontWeight: 600
+                            }}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+            </div>
+          )}
+
+        </div>
+      )}
+      {/* --- TAB: TASKS --- */}
+      {activeTab === 'tasks' && (
+        <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 600 }} className="gradient-text">🎯 Promotional Tasks & Rewards</h2>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+              Complete promotional tasks and targets to claim extra cash rewards! (Limit: 1 claim per task)
+            </p>
+            <div style={{ fontSize: '0.75rem', color: 'var(--gold)', marginTop: '6px', fontWeight: 600 }}>
+              📅 Event Duration: 1 July - 30 July
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {/* Task 1 */}
+            {renderTaskCard(
+              "task_first_deposit",
+              "🎁 First Deposit Bonus",
+              "Complete your first deposit of any amount. (One-time claim)",
+              "₹50 Reward",
+              tasksProgress?.task_first_deposit
+            )}
+
+            {/* Task 2 */}
+            {renderTaskCard(
+              "task_vol_5000",
+              "⚡ Medium Volume Reward",
+              "Purchase ₹5,000+ total orders OR buy a total of 10 orders. (One-time claim)",
+              "₹150 Reward",
+              tasksProgress?.task_vol_5000,
+              true
+            )}
+
+            {/* Task 3 */}
+            {renderTaskCard(
+              "task_vol_10000",
+              "🔥 High Volume Reward",
+              "Purchase ₹10,000+ total orders OR buy a total of 25 orders. (One-time claim)",
+              "₹500 Reward",
+              tasksProgress?.task_vol_10000,
+              true
+            )}
+
+            {/* Task 4 */}
+            {renderTaskCard(
+              "task_two_5000_orders",
+              "🚀 Multi-Buyer Bonus (5k)",
+              "Buy exactly two schemes of ₹5,000 each. (One-time claim)",
+              "₹200 Reward",
+              tasksProgress?.task_two_5000_orders
+            )}
+
+            {/* Task 5 */}
+            {renderTaskCard(
+              "task_four_10000_orders",
+              "💎 Multi-Buyer Bonus (10k)",
+              "Buy exactly four schemes of ₹10,000 each. (One-time claim)",
+              "₹1,000 Reward",
+              tasksProgress?.task_four_10000_orders
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* --- TELEGRAM GATE MODAL --- */}
+      {showTelegramGate && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.9)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div className="glass-panel animate-fade-in" style={{ width: '100%', maxWidth: '420px', padding: '24px', textAlign: 'center', border: '1px solid rgba(255,255,255,0.1)' }}>
+            <h3 style={{ fontSize: '1.3rem', fontWeight: 700, marginBottom: '12px' }} className="gradient-text">📢 Telegram Join Required!</h3>
+
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.4', marginBottom: '20px' }}>
+              Joining our official Telegram Channel and Telegram Group is required before purchasing schemes or completing payments.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
+              {/* Channel Button */}
+              <a
+                href="https://t.me/+GclayxaTZac3MDg1"
+                target="_blank"
+                rel="noreferrer"
+                onClick={async () => {
+                  try {
+                    const res = await fetch('/api/user/telegram', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ type: 'channel' })
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                      setUser(prev => ({ ...prev, isTelegramChannelJoined: true }));
+                    }
+                  } catch (e) {
+                    console.error('Error toggling channel:', e);
+                  }
+                }}
+                className="glass-panel"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '16px',
+                  textDecoration: 'none',
+                  border: user?.isTelegramChannelJoined ? '1px solid var(--success)' : '1px solid var(--glass-border)',
+                  background: user?.isTelegramChannelJoined ? 'rgba(0,184,148,0.05)' : 'rgba(255,255,255,0.02)',
+                  transition: 'all 0.2s'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ fontSize: '1.2rem' }}>📣</span>
+                  <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.85rem' }}>Join Telegram Channel</span>
+                </div>
+                {user?.isTelegramChannelJoined ? (
+                  <span style={{ color: 'var(--success)', fontWeight: 700, fontSize: '0.8rem' }}>Joined ✓</span>
+                ) : (
+                  <span className="gradient-btn" style={{ padding: '4px 10px', borderRadius: '6px', fontSize: '0.75rem' }}>Join</span>
+                )}
+              </a>
+
+              {/* Group Button */}
+              <a
+                href="https://t.me/+GclayxaTZac3MDg1"
+                target="_blank"
+                rel="noreferrer"
+                onClick={async () => {
+                  try {
+                    const res = await fetch('/api/user/telegram', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ type: 'group' })
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                      setUser(prev => ({ ...prev, isTelegramGroupJoined: true }));
+                    }
+                  } catch (e) {
+                    console.error('Error toggling group:', e);
+                  }
+                }}
+                className="glass-panel"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '16px',
+                  textDecoration: 'none',
+                  border: user?.isTelegramGroupJoined ? '1px solid var(--success)' : '1px solid var(--glass-border)',
+                  background: user?.isTelegramGroupJoined ? 'rgba(0,184,148,0.05)' : 'rgba(255,255,255,0.02)',
+                  transition: 'all 0.2s'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ fontSize: '1.2rem' }}>💬</span>
+                  <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.85rem' }}>Join Telegram Group</span>
+                </div>
+                {user?.isTelegramGroupJoined ? (
+                  <span style={{ color: 'var(--success)', fontWeight: 700, fontSize: '0.8rem' }}>Joined ✓</span>
+                ) : (
+                  <span className="gradient-btn" style={{ padding: '4px 10px', borderRadius: '6px', fontSize: '0.75rem' }}>Join</span>
+                )}
+              </a>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <button
+                disabled={!(user?.isTelegramChannelJoined && user?.isTelegramGroupJoined)}
+                onClick={() => setShowTelegramGate(false)}
+                className="gradient-btn"
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  borderRadius: '10px',
+                  fontSize: '0.9rem',
+                  opacity: (user?.isTelegramChannelJoined && user?.isTelegramGroupJoined) ? 1 : 0.4,
+                  cursor: (user?.isTelegramChannelJoined && user?.isTelegramGroupJoined) ? 'pointer' : 'not-allowed'
+                }}
+              >
+                Proceed to Invest / Order
+              </button>
+
+              <button
+                onClick={() => setShowTelegramGate(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  fontSize: '0.8rem',
+                  marginTop: '4px'
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL 1: SCHEME DETAILS / SCHEME DIALOG --- */}
+      {activeOrderDetails && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div className="glass-panel animate-fade-in" style={{ width: '100%', maxWidth: '500px', padding: '24px 20px', border: '1px solid rgba(255,255,255,0.08)', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
+              <h3 style={{ fontSize: '1.25rem', fontWeight: 700 }} className="gradient-text">{activeOrderDetails.name}</h3>
+              <button
+                onClick={handleCloseModal}
+                style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '1rem' }}
+              >
+                Close
+              </button>
+            </div>
+
+            {paymentStep === 1 ? (
+              <>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '24px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--glass-border)', paddingBottom: '10px' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>Selected Amount</span>
+                    <strong style={{ fontSize: '1.1rem' }}>₹{activeOrderDetails.price}</strong>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--glass-border)', paddingBottom: '10px' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>Daily Return Rate</span>
+                    <strong style={{ color: 'var(--success)' }}>{(activeOrderDetails.daily_return_rate * 100).toFixed(1)}% / day</strong>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--glass-border)', paddingBottom: '10px' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>Daily Income</span>
+                    <strong>₹{(activeOrderDetails.price * activeOrderDetails.daily_return_rate).toFixed(2)}</strong>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--glass-border)', paddingBottom: '10px' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>Total Payout Return</span>
+                    <strong style={{ color: 'var(--accent-secondary)', fontSize: '1.1rem' }}>₹{activeOrderDetails.total_return}</strong>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--glass-border)', paddingBottom: '10px' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>Validity Period</span>
+                    <strong>{activeOrderDetails.days} Days</strong>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setPaymentStep(2)}
+                  className="gradient-btn"
+                  style={{ width: '100%', padding: '14px', borderRadius: '10px', fontSize: '1rem' }}
+                >
+                  Proceed to Payment
+                </button>
+              </>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="animate-fade-in">
+
+                {/* 15-Minute Countdown Timer */}
+                {paymentTimer > 0 ? (
+                  <div style={{ padding: '10px', background: 'rgba(0, 206, 201, 0.1)', border: '1px solid rgba(0, 206, 201, 0.2)', borderRadius: '10px', textAlign: 'center' }}>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', letterSpacing: '0.5px' }}>PAYMENT EXPIRES IN</span>
+                    <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--accent-secondary)', marginTop: '2px' }}>
+                      {formatTimerValue(paymentTimer)}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ padding: '12px', background: 'rgba(255, 118, 117, 0.1)', border: '1px solid rgba(255, 118, 117, 0.2)', borderRadius: '10px', textAlign: 'center', color: 'var(--error)', fontSize: '0.85rem' }}>
+                    <strong>Time Expired:</strong> The 15-minute payment window has closed. Close this modal and submit a new request.
+                  </div>
+                )}
+
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textAlign: 'center', marginBottom: '5px' }}>
+                  Scan UPI QR Code or transfer to Bank Account below:
+                </div>
+
+                {/* QR Code */}
+                <div style={{ background: '#fff', padding: '10px', borderRadius: '12px', width: '200px', height: '200px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=${activeOrderBankDetails?.upiId || 'fastpay@upi'}&pn=FastPay&am=${activeOrderDetails.price}&cu=INR`)}`}
+                    alt="Payment QR Code"
+                    style={{ width: '180px', height: '180px' }}
+                  />
+                </div>
+
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textAlign: 'center' }}>
+                  UPI ID: <strong style={{ color: 'var(--text-primary)' }}>{activeOrderBankDetails?.upiId || 'fastpay@upi'}</strong>
+                </div>
+
+                {/* Bank details card */}
+                <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', borderRadius: '12px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.8rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>Beneficiary Name:</span>
+                    <strong>{activeOrderBankDetails?.beneficiaryName || 'FastPay Ecosystem'}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>Bank Name:</span>
+                    <strong>{activeOrderBankDetails?.bankName || 'Axis Bank'}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>Account Number:</span>
+                    <strong>{activeOrderBankDetails?.accountNumber || '912010087654321'}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>IFSC Code:</span>
+                    <strong>{activeOrderBankDetails?.ifsc || 'UTIB0000123'}</strong>
+                  </div>
+                </div>
+
+                {/* UTR Input field */}
+                <div style={{ marginTop: '10px' }}>
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>12-Digit Transaction UTR / Ref Number</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    maxLength={12}
+                    placeholder="Enter 12-digit UTR ID"
+                    value={paymentUtr}
+                    onChange={(e) => setPaymentUtr(e.target.value.replace(/\D/g, ''))}
+                    required
+                  />
+                </div>
+
+                {/* Screenshot Upload field */}
+                <div style={{ marginTop: '10px' }}>
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Upload Payment Screenshot / Receipt</label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="form-input"
+                    onChange={(e) => {
+                      const file = e.target.files[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                          setPaymentScreenshot(reader.result);
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                    required
+                  />
+                  {paymentScreenshot && (
+                    <div style={{ marginTop: '10px', textAlign: 'center' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Screenshot Preview:</span>
+                      <img
+                        src={paymentScreenshot}
+                        alt="Screenshot Preview"
+                        style={{ maxWidth: '100%', maxHeight: '120px', borderRadius: '8px', border: '1px solid var(--glass-border)' }}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  onClick={() => {
+                    if (paymentUtr.length !== 12) {
+                      alert('Please enter a valid 12-digit UTR number.');
+                      return;
+                    }
+                    if (!paymentScreenshot) {
+                      alert('Please upload a screenshot of your transaction.');
+                      return;
+                    }
+                    handleBuyOrder(activeOrderDetails.id, paymentUtr, paymentScreenshot);
+                  }}
+                  className="gradient-btn"
+                  disabled={paymentTimer === 0}
+                  style={{ width: '100%', padding: '14px', borderRadius: '10px', fontSize: '1rem', marginTop: '10px', opacity: paymentTimer === 0 ? 0.5 : 1 }}
+                >
+                  Submit Payment Details
+                </button>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '5px' }}>
+                  <button
+                    onClick={() => setPaymentStep(1)}
+                    style={{ background: 'none', border: 'none', color: 'var(--accent-secondary)', cursor: 'pointer', fontSize: '0.85rem' }}
+                  >
+                    Go Back
+                  </button>
+                  <button
+                    onClick={handleCloseModal}
+                    style={{ background: 'none', border: 'none', color: 'var(--error)', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
+                  >
+                    Cancel Purchase
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL 2: DEPOSIT MODAL WITH VIRTUAL ACCOUNT ASSIGNMENT --- */}
+      {showDepositModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '440px', padding: '24px', position: 'relative' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 style={{ fontSize: '1.2rem', fontWeight: 700 }} className="gradient-text">Fund Wallet Balance</h3>
+              <button
+                onClick={() => { setShowDepositModal(false); setVirtualAccount(null); }}
+                style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}
+              >
+                Close
+              </button>
+            </div>
+
+            {txMessage.text && (
+              <div style={{
+                background: txMessage.type === 'success' ? 'rgba(0, 184, 148, 0.1)' : 'rgba(255, 118, 117, 0.1)',
+                color: txMessage.type === 'success' ? 'var(--success)' : 'var(--error)',
+                padding: '12px', borderRadius: '8px', fontSize: '0.85rem', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px'
+              }}>
+                <AlertCircle size={16} />
+                <span>{txMessage.text}</span>
+              </div>
+            )}
+
+            {!virtualAccount ? (
+              <form onSubmit={handleDepositSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Deposit Amount (INR)</label>
+                  <input
+                    type="number"
+                    className="form-input"
+                    placeholder="Enter deposit amount, e.g. 500"
+                    value={depositAmount}
+                    onChange={(e) => setDepositAmount(e.target.value)}
+                    required
+                  />
+                </div>
+                <button type="submit" className="gradient-btn" style={{ padding: '14px', borderRadius: '10px', fontSize: '1rem' }}>
+                  Generate Unique Deposit Account
+                </button>
+              </form>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="animate-fade-in">
+
+                <div style={{ background: 'rgba(253, 203, 110, 0.1)', color: 'var(--gold)', border: '1px solid rgba(253, 203, 110, 0.2)', padding: '12px', borderRadius: '8px', fontSize: '0.75rem', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                  <Lock size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+                  <div>
+                    <strong>Secure Collision-Free Lock:</strong> This account details are exclusively mapped to your ID for the next 15 minutes. No other user can receive this details page during this window.
+                  </div>
+                </div>
+
+                {/* Live Expiration Countdown */}
+                <div style={{ textAlign: 'center', padding: '10px', background: 'var(--bg-tertiary)', borderRadius: '10px', border: '1px solid var(--glass-border)' }}>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>LOCK EXPIRES IN</span>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--error)', marginTop: '4px' }}>
+                    {formatTimerValue(virtualAccountTimer)}
+                  </div>
+                </div>
+
+                <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '0.85rem' }}>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '0.75rem' }}>Beneficiary Name</span>
+                      <strong>{virtualAccount.beneficiaryName}</strong>
+                    </div>
+                    <button onClick={() => copyToClipboard(virtualAccount.beneficiaryName)} style={{ background: 'none', border: 'none', color: 'var(--accent-secondary)', cursor: 'pointer' }}><Copy size={14} /></button>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--glass-border)', paddingTop: '8px' }}>
+                    <div>
+                      <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '0.75rem' }}>Account Number</span>
+                      <strong style={{ letterSpacing: '0.5px' }}>{virtualAccount.accountNumber}</strong>
+                    </div>
+                    <button onClick={() => copyToClipboard(virtualAccount.accountNumber)} style={{ background: 'none', border: 'none', color: 'var(--accent-secondary)', cursor: 'pointer' }}><Copy size={14} /></button>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--glass-border)', paddingTop: '8px' }}>
+                    <div>
+                      <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '0.75rem' }}>IFSC Code</span>
+                      <strong>{virtualAccount.ifsc}</strong>
+                    </div>
+                    <button onClick={() => copyToClipboard(virtualAccount.ifsc)} style={{ background: 'none', border: 'none', color: 'var(--accent-secondary)', cursor: 'pointer' }}><Copy size={14} /></button>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--glass-border)', paddingTop: '8px' }}>
+                    <div>
+                      <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '0.75rem' }}>Bank Branch</span>
+                      <strong>{virtualAccount.bankName}</strong>
+                    </div>
+                  </div>
+
+                </div>
+
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textAlign: 'center' }}>
+                  Transfer <strong>₹{virtualAccount.amount}</strong> to the virtual banking details above. Deposits auto-settle upon detection.
+                </div>
+
+                <button
+                  onClick={() => { setShowDepositModal(false); setVirtualAccount(null); }}
+                  className="gradient-btn"
+                  style={{ padding: '12px', borderRadius: '10px' }}
+                >
+                  Confirm Transfer Made
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL 3: WITHDRAWAL MODAL --- */}
+      {showWithdrawModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '440px', padding: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 style={{ fontSize: '1.2rem', fontWeight: 700 }} className="gradient-text">Cash-out Wallet Funds</h3>
+              <button
+                onClick={() => setShowWithdrawModal(false)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}
+              >
+                Close
+              </button>
+            </div>
+
+            {txMessage.text && (
+              <div style={{
+                background: txMessage.type === 'success' ? 'rgba(0, 184, 148, 0.1)' : 'rgba(255, 118, 117, 0.1)',
+                color: txMessage.type === 'success' ? 'var(--success)' : 'var(--error)',
+                padding: '12px', borderRadius: '8px', fontSize: '0.85rem', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px'
+              }}>
+                {txMessage.type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+                <span>{txMessage.text}</span>
+              </div>
+            )}
+
+            {!user?.isBankLinked ? (
+              <div style={{ textAlign: 'center', padding: '10px 0' }}>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+                  You must link a validated bank account or UPI ID before initiating cash-outs.
+                </p>
+                <button
+                  onClick={() => { setShowWithdrawModal(false); setActiveTab('account'); }}
+                  className="gradient-btn"
+                  style={{ padding: '10px 20px', borderRadius: '10px', fontSize: '0.9rem' }}
+                >
+                  Link Bank Details Now
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleWithdrawalSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '8px' }}>
+                    Settling directly to linked Bank Name: <strong>{user?.bankDetails?.accountName}</strong> ({user?.bankDetails?.upi_id})
+                  </span>
+                  <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Cashout Amount (INR)</label>
+                  <input
+                    type="number"
+                    className="form-input"
+                    placeholder="Enter amount to withdraw"
+                    value={withdrawAmount}
+                    onChange={(e) => setWithdrawAmount(e.target.value)}
+                    required
+                  />
+                </div>
+                <button type="submit" className="gradient-btn" style={{ padding: '14px', borderRadius: '10px', fontSize: '1rem' }}>
+                  Request Settlement Transfer
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL 3: UNIFIED HISTORY DETAIL POPUP --- */}
+      {selectedHistoryItem && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div className="glass-panel animate-fade-in" style={{ width: '100%', maxWidth: '440px', padding: '24px', position: 'relative' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h3 style={{ fontSize: '1.2rem', fontWeight: 700 }} className="gradient-text">Activity Details</h3>
+              <button
+                onClick={() => setSelectedHistoryItem(null)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '1rem' }}
+              >
+                Close
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', fontSize: '0.85rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--glass-border)', paddingBottom: '10px' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Activity Type:</span>
+                <strong style={{ textTransform: 'capitalize' }}>{selectedHistoryItem.title}</strong>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--glass-border)', paddingBottom: '10px' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Amount Involved:</span>
+                <strong style={{ color: selectedHistoryItem.amount > 0 ? 'var(--success)' : 'var(--error)', fontSize: '1.05rem' }}>
+                  {selectedHistoryItem.amount > 0 ? `+₹${selectedHistoryItem.amount.toFixed(2)}` : `-₹${Math.abs(selectedHistoryItem.amount).toFixed(2)}`}
+                </strong>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--glass-border)', paddingBottom: '10px' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Status:</span>
+                <span style={{
+                  fontSize: '0.75rem',
+                  background: selectedHistoryItem.status === 'completed' || selectedHistoryItem.status === 'active' ? 'rgba(0, 184, 148, 0.1)' :
+                    selectedHistoryItem.status === 'pending' ? 'rgba(253, 203, 110, 0.1)' : 'rgba(255, 118, 117, 0.1)',
+                  color: selectedHistoryItem.status === 'completed' || selectedHistoryItem.status === 'active' ? 'var(--success)' :
+                    selectedHistoryItem.status === 'pending' ? 'var(--gold)' : 'var(--error)',
+                  padding: '2px 8px',
+                  borderRadius: '4px',
+                  textTransform: 'capitalize',
+                  fontWeight: 600
+                }}>
+                  {selectedHistoryItem.status}
+                </span>
+              </div>
+
+
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--glass-border)', paddingBottom: '10px' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Date & Time:</span>
+                <strong>{selectedHistoryItem.date.toLocaleDateString()} {selectedHistoryItem.date.toLocaleTimeString()}</strong>
+              </div>
+
+              {selectedHistoryItem.itemType === 'transaction' && selectedHistoryItem.raw.virtual_account && (
+                <div style={{ padding: '12px', background: 'var(--bg-tertiary)', borderRadius: '10px', marginTop: '4px' }}>
+                  <div style={{ fontWeight: 600, marginBottom: '6px', color: 'var(--accent-secondary)' }}>Settled Virtual Account Details:</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                    <div>Bank: <strong>{selectedHistoryItem.raw.virtual_bank}</strong></div>
+                    <div>Account Number: <strong>{selectedHistoryItem.raw.virtual_account}</strong></div>
+                    <div>IFSC: <strong>{selectedHistoryItem.raw.virtual_ifsc}</strong></div>
+                    <div>Beneficiary: <strong>{selectedHistoryItem.raw.virtual_beneficiary}</strong></div>
+                  </div>
+                </div>
+              )}
+
+              {selectedHistoryItem.itemType === 'order' && (
+                <div style={{ padding: '12px', background: 'var(--bg-tertiary)', borderRadius: '10px', marginTop: '4px' }}>
+                  <div style={{ fontWeight: 600, marginBottom: '6px', color: 'var(--accent-secondary)' }}>Subscription Order Metadata:</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                    <div>UTR/Ref Code: <strong>{selectedHistoryItem.raw.utr || 'N/A'}</strong></div>
+                    <div>Daily Yield: <strong style={{ color: 'var(--success)' }}>₹{selectedHistoryItem.raw.daily_income?.toFixed(2)}</strong></div>
+                    {selectedHistoryItem.raw.days_remaining !== undefined && (
+                      <div>Duration remaining: <strong>{selectedHistoryItem.raw.days_remaining} Days</strong></div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {selectedHistoryItem.itemType === 'order' && selectedHistoryItem.status === 'pending' && (
+                <button
+                  onClick={() => {
+                    const scheme = schemes.find(s => s.id === selectedHistoryItem.raw.scheme_id);
+                    if (scheme) {
+                      if (user && (!user.isTelegramChannelJoined || !user.isTelegramGroupJoined)) {
+                        setShowTelegramGate(true);
+                        return;
+                      }
+                      setCurrentDraftOrderId(selectedHistoryItem.rawId);
+                      setActiveOrderDetails(scheme);
+                      setActiveOrderBankDetails({
+                        accountNumber: selectedHistoryItem.raw.virtual_account,
+                        bankName: selectedHistoryItem.raw.virtual_bank,
+                        beneficiaryName: selectedHistoryItem.raw.virtual_beneficiary,
+                        ifsc: selectedHistoryItem.raw.virtual_ifsc,
+                        upiId: selectedHistoryItem.raw.virtual_upi || "fastpay@upi"
+                      });
+                      setPaymentStep(2);
+                      setPaymentUtr('');
+                      setPaymentScreenshot(null);
+                      setSelectedHistoryItem(null);
+                    } else {
+                      alert('Associated scheme details not found.');
+                    }
+                  }}
+                  className="gradient-btn"
+                  style={{ width: '100%', padding: '12px', borderRadius: '10px', fontSize: '0.9rem', marginTop: '16px' }}
+                >
+                  💳 Complete Payment / Repay
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- PERSISTENT BOTTOM TAB BAR NAVIGATION --- */}
+      <nav className="bottom-nav">
+        <button
+          onClick={() => setActiveTab('home')}
+          className={`nav-item ${activeTab === 'home' ? 'active' : ''}`}
+        >
+          <HomeIcon className="nav-icon" />
+          <span>Home</span>
+        </button>
+
+        <button
+          onClick={() => { setActiveTab('tasks'); fetchTasksProgress(); }}
+          className={`nav-item ${activeTab === 'tasks' ? 'active' : ''}`}
+        >
+          <CheckSquare className="nav-icon" />
+          <span>Tasks</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('orders')}
+          className={`nav-item ${activeTab === 'orders' ? 'active' : ''}`}
+        >
+          <TrendingUp className="nav-icon" />
+          <span>Orders</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('team')}
+          className={`nav-item ${activeTab === 'team' ? 'active' : ''}`}
+        >
+          <Users className="nav-icon" />
+          <span>Team</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('account')}
+          className={`nav-item ${activeTab === 'account' ? 'active' : ''}`}
+        >
+          <CreditCard className="nav-icon" />
+          <span>Account</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('me')}
+          className={`nav-item ${activeTab === 'me' ? 'active' : ''}`}
+        >
+          <UserIcon className="nav-icon" />
+          <span>Me</span>
+        </button>
+      </nav>
+
+    </div>
+  );
+}
