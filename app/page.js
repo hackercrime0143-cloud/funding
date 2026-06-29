@@ -48,6 +48,11 @@ export default function FastPayApp() {
   const [sentOtpCode, setSentOtpCode] = useState(''); // Shown in UI for demonstration
   const [otpLoading, setOtpLoading] = useState(false);
 
+  // Device check & Captcha states
+  const [isDeviceBlocked, setIsDeviceBlocked] = useState(false);
+  const [captchaCode, setCaptchaCode] = useState('');
+  const [captchaInput, setCaptchaInput] = useState('');
+
   // Schemes & Orders Data
   const [schemes, setSchemes] = useState([]);
   const [orders, setOrders] = useState([]);
@@ -99,6 +104,10 @@ export default function FastPayApp() {
   const [txMessage, setTxMessage] = useState({ type: '', text: '' });
   const [txHistory, setTxHistory] = useState([]);
   const [activeOrderBankDetails, setActiveOrderBankDetails] = useState(null);
+  const [depositUtr, setDepositUtr] = useState('');
+  const [depositScreenshot, setDepositScreenshot] = useState(null);
+  const [currentDepositTxId, setCurrentDepositTxId] = useState(null);
+  const [adminExpandedTxId, setAdminExpandedTxId] = useState(null);
 
   // Account settings state
   const [accountNumber, setAccountNumber] = useState('');
@@ -120,10 +129,33 @@ export default function FastPayApp() {
   const otpIntervalRef = useRef(null);
   const vaIntervalRef = useRef(null);
 
-  // 1. Initial Authentication Check
+  const generateCaptcha = () => {
+    const code = Math.floor(1000 + Math.random() * 9000).toString();
+    setCaptchaCode(code);
+    setCaptchaInput('');
+  };
+
+  // 1. Initial Authentication Check & Device Verification
   useEffect(() => {
     fetchSession();
+    generateCaptcha();
+
+    if (typeof window !== 'undefined') {
+      const ua = navigator.userAgent || navigator.vendor || window.opera;
+      const isAndroid = /android/i.test(ua);
+      const isIos = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
+      const isMobileWidth = window.innerWidth <= 768;
+
+      if (!isMobileWidth || isIos || !isAndroid) {
+        setIsDeviceBlocked(true);
+      }
+    }
   }, []);
+
+  // Regenerate captcha when switching login/registration forms
+  useEffect(() => {
+    generateCaptcha();
+  }, [isLogin]);
 
   // Auto-calculate new scheme total return dynamically
   useEffect(() => {
@@ -381,6 +413,13 @@ export default function FastPayApp() {
     e.preventDefault();
     setAuthError('');
 
+    // Verification Code (Captcha) Check
+    if (captchaInput !== captchaCode) {
+      setAuthError('Verification code (Captcha) does not match.');
+      generateCaptcha();
+      return;
+    }
+
     let endpoint = '';
     let bodyObj = {};
 
@@ -463,27 +502,68 @@ export default function FastPayApp() {
   const handleDepositSubmit = async (e) => {
     e.preventDefault();
     setTxMessage({ type: '', text: '' });
-    if (!depositAmount || parseFloat(depositAmount) <= 0) {
+    const amountVal = parseFloat(depositAmount);
+    if (isNaN(amountVal) || amountVal <= 0) {
       setTxMessage({ type: 'error', text: 'Enter a valid amount.' });
+      return;
+    }
+
+    // Close amount entering modal
+    setShowDepositModal(false);
+
+    // Construct the custom deposit scheme
+    const customScheme = {
+      id: 'custom_deposit_scheme',
+      name: 'Quick Deposit Scheme',
+      price: amountVal,
+      daily_return_rate: 0.035, // 3.5%
+      days: 3,
+      total_return: amountVal * (1 + 0.035 * 3)
+    };
+
+    // Open scheme details preview modal
+    handleInitiateSchemePurchase(customScheme);
+  };
+
+  const handleDepositProofSubmit = async () => {
+    setTxMessage({ type: '', text: '' });
+    if (!currentDepositTxId) return;
+    if (depositUtr.length !== 12) {
+      alert('Please enter a valid 12-digit UTR number.');
+      return;
+    }
+    if (!depositScreenshot) {
+      alert('Please upload a screenshot of your transaction.');
       return;
     }
     try {
       const res = await fetch('/api/transactions', {
-        method: 'POST',
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'deposit', amount: depositAmount }),
+        body: JSON.stringify({
+          transactionId: currentDepositTxId,
+          utr: depositUtr,
+          screenshot: depositScreenshot
+        }),
       });
       const data = await res.json();
       if (data.success) {
-        setVirtualAccount(data.depositDetails);
-        const secRemaining = Math.max(0, Math.floor((new Date(data.depositDetails.expiresAt) - new Date()) / 1000));
-        setVirtualAccountTimer(secRemaining);
+        alert(parseFloat(depositAmount) >= 100 && parseFloat(depositAmount) <= 500
+          ? 'Deposit proof submitted! Your Quick Deposit Scheme order is pending verification.'
+          : 'Deposit proof submitted successfully for verification!');
+        setShowDepositModal(false);
+        setVirtualAccount(null);
+        setCurrentDepositTxId(null);
+        setDepositUtr('');
+        setDepositScreenshot(null);
+        fetchSession();
+        fetchOrders();
         fetchTransactions();
       } else {
         setTxMessage({ type: 'error', text: data.error });
       }
     } catch (err) {
-      setTxMessage({ type: 'error', text: 'Server error processing deposit request.' });
+      setTxMessage({ type: 'error', text: 'Server error submitting deposit proof.' });
     }
   };
 
@@ -813,6 +893,29 @@ export default function FastPayApp() {
     return feed.sort((a, b) => b.date - a.date);
   };
 
+  // Rendering Helper: Device Restriction Block
+  if (isDeviceBlocked) {
+    return (
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        height: '100vh',
+        backgroundColor: '#000000',
+        color: '#ffffff',
+        padding: '24px',
+        textAlign: 'center',
+        fontFamily: 'Outfit, sans-serif'
+      }}>
+        <h2 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '16px' }}>⚠️ Device Access Restricted</h2>
+        <p style={{ fontSize: '0.95rem', lineHeight: '1.6', color: '#a0a0a0', maxWidth: '360px' }}>
+          This system is strictly limited to **Android Mobile devices** for security and system integrity protocols. Access via desktop computers, iPhones (iOS), or tablets is blocked.
+        </p>
+      </div>
+    );
+  }
+
   // Rendering Helper: Loading State
   if (appState === 'loading') {
     return (
@@ -971,6 +1074,53 @@ export default function FastPayApp() {
               </>
             )}
 
+            {/* Captcha Verification Code Block */}
+            <div style={{ marginTop: '8px' }}>
+              <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Verification Code</label>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="Enter 4-digit code"
+                  value={captchaInput}
+                  onChange={(e) => setCaptchaInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  required
+                  style={{ flex: 1 }}
+                />
+                <div style={{
+                  background: '#000000',
+                  color: '#ffffff',
+                  padding: '8px 16px',
+                  borderRadius: '10px',
+                  fontFamily: 'monospace',
+                  fontWeight: 700,
+                  fontSize: '1.2rem',
+                  letterSpacing: '4px',
+                  userSelect: 'none',
+                  border: '1px solid var(--glass-border)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}>
+                  {captchaCode}
+                </div>
+                <button
+                  type="button"
+                  onClick={generateCaptcha}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    padding: '8px'
+                  }}
+                  title="Regenerate Captcha"
+                >
+                  <RefreshCw size={16} />
+                </button>
+              </div>
+            </div>
+
             <button type="submit" className="gradient-btn" style={{ padding: '14px', borderRadius: '10px', fontSize: '1rem', marginTop: '8px' }}>
               {isForgot ? 'Reset & Access Account' : isLogin ? 'Authenticate Access' : 'Create Secure Wallet'}
             </button>
@@ -1063,9 +1213,8 @@ export default function FastPayApp() {
             <span>{percent.toFixed(0)}%</span>
           </div>
           <div style={{ width: '100%', height: '6px', background: 'var(--bg-tertiary)', borderRadius: '3px', overflow: 'hidden' }}>
-            <div style={{ width: `${percent}%`, height: '100%', background: 'linear-gradient(90deg, var(--accent) 0%, var(--accent-secondary) 100%)', borderRadius: '3px', transition: 'width 0.3s' }} />
-          </div>
-        </div>
+            <div style={{ width: `${percent}%`, height: '100%', background: '#000000', borderRadius: '3px', transition: 'width 0.3s' }} />
+          </div>        </div>
       </div>
     );
   };
@@ -1166,11 +1315,19 @@ export default function FastPayApp() {
 
           {/* Main Wallet Card */}
           <div className="glass-panel" style={{ padding: '24px', background: 'linear-gradient(135deg, rgba(108, 92, 231, 0.2) 0%, rgba(0, 206, 201, 0.1) 100%)', border: '1px solid rgba(108, 92, 231, 0.3)' }}>
-            <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Wallet Available Balance</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Wallet Available Balance</span>
+              <button 
+                onClick={() => { fetchSession(); fetchTransactions(); }} 
+                style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.85rem' }}
+                title="Refresh Balance"
+              >
+                <RefreshCw size={14} /> Refresh
+              </button>
+            </div>
             <div style={{ fontSize: '2.5rem', fontWeight: 700, margin: '8px 0', color: 'var(--text-primary)' }}>
               ₹{user?.walletBalance.toFixed(2)}
             </div>
-
             <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
               <button
                 onClick={() => { setDepositAmount(''); setVirtualAccount(null); setTxMessage({ type: '', text: '' }); setShowDepositModal(true); }}
@@ -1220,9 +1377,9 @@ export default function FastPayApp() {
                 {getUnifiedHistory().slice(0, 8).map((item) => (
                   <div
                     key={item.id}
-                    onClick={() => setSelectedHistoryItem(item)}
-                    className="glass-panel interactive-card"
-                    style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                    onClick={item.type === 'deposit' ? undefined : () => setSelectedHistoryItem(item)}
+                    className={`glass-panel ${item.type === 'deposit' ? '' : 'interactive-card'}`}
+                    style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: item.type === 'deposit' ? 'default' : 'pointer' }}
                   >
                     <div>
                       <div style={{ fontWeight: 600, fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -1743,15 +1900,15 @@ export default function FastPayApp() {
 
           {/* Support ID Card */}
           {user?.supportId && (
-            <div className="glass-panel" style={{ padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(108, 92, 231, 0.06)', border: '1px solid rgba(108, 92, 231, 0.18)' }}>
+            <div className="glass-panel" style={{ padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0, 0, 0, 0.03)', border: '1px solid var(--glass-border)' }}>
               <div>
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>🎫 Your Support ID</span>
-                <span style={{ fontSize: '1.4rem', fontWeight: 800, letterSpacing: '4px', color: '#a29bfe', fontFamily: 'monospace' }}>{user.supportId}</span>
+                <span style={{ fontSize: '1.4rem', fontWeight: 800, letterSpacing: '4px', color: 'var(--text-primary)', fontFamily: 'monospace' }}>{user.supportId}</span>
                 <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Share this ID when contacting support</div>
               </div>
               <button
                 onClick={() => copyToClipboard(user.supportId)}
-                style={{ background: 'rgba(108, 92, 231, 0.15)', border: '1px solid rgba(108, 92, 231, 0.3)', color: '#a29bfe', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}
+                style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', color: 'var(--text-primary)', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}
               >
                 Copy
               </button>
@@ -2268,8 +2425,23 @@ export default function FastPayApp() {
                         );
                       }
 
+                      const isExpandedTx = adminExpandedTxId === item.id;
                       return (
-                        <div key={item.id} className="glass-panel" style={{ padding: '16px', background: 'var(--bg-secondary)', borderTop: '1px solid var(--glass-border)', borderRight: '1px solid var(--glass-border)', borderBottom: '1px solid var(--glass-border)', borderLeft: item.type === 'deposit' ? '3px solid var(--success)' : '3px solid var(--error)', borderRadius: '6px' }}>
+                        <div
+                          key={item.id}
+                          className="glass-panel interactive-card"
+                          onClick={() => setAdminExpandedTxId(isExpandedTx ? null : item.id)}
+                          style={{
+                            padding: '16px',
+                            cursor: 'pointer',
+                            background: 'var(--bg-secondary)',
+                            borderTop: '1px solid var(--glass-border)',
+                            borderRight: '1px solid var(--glass-border)',
+                            borderBottom: '1px solid var(--glass-border)',
+                            borderLeft: item.type === 'deposit' ? '3px solid var(--success)' : '3px solid var(--error)',
+                            borderRadius: '6px'
+                          }}
+                        >
                           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                               <span style={{ fontWeight: 600, fontSize: '0.9rem', textTransform: 'capitalize', color: 'var(--text-primary)' }}>{item.type}</span>
@@ -2285,28 +2457,61 @@ export default function FastPayApp() {
                                 fontWeight: 600
                               }}>{item.status}</span>
                             </div>
-                            <strong style={{ color: item.type === 'deposit' ? 'var(--success)' : 'var(--error)' }}>₹{Math.abs(item.amount).toFixed(2)}</strong>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <strong style={{ color: item.type === 'deposit' ? 'var(--success)' : 'var(--error)' }}>₹{Math.abs(item.amount).toFixed(2)}</strong>
+                              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                                {isExpandedTx ? '▲' : '▼'}
+                              </span>
+                            </div>
                           </div>
-                          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: item.status === 'pending' ? '12px' : '0px' }}>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                             <div>User: <strong>{item.user_name}</strong> ({item.user_phone}) {item.user_support_id && <>• ID: <strong style={{ color: '#a29bfe' }}>{item.user_support_id}</strong></>}</div>
                             <div>Date: {new Date(item.created_at).toLocaleString()}</div>
                           </div>
 
-                          {item.status === 'pending' && (
-                            <div style={{ display: 'flex', gap: '8px' }}>
-                              <button
-                                onClick={() => handleAdminAction('approveTransaction', { transactionId: item.id })}
-                                className="gradient-btn"
-                                style={{ flex: 1, padding: '8px', borderRadius: '4px', fontSize: '0.8rem' }}
-                              >
-                                Approve
-                              </button>
-                              <button
-                                onClick={() => handleAdminAction('rejectTransaction', { transactionId: item.id })}
-                                style={{ flex: 1, padding: '8px', borderRadius: '4px', background: 'none', border: '1px solid var(--error)', color: 'var(--error)', fontSize: '0.8rem', cursor: 'pointer' }}
-                              >
-                                Reject
-                              </button>
+                          {isExpandedTx && (
+                            <div
+                              className="animate-fade-in"
+                              style={{ marginTop: '12px', borderTop: '1px solid var(--glass-border)', paddingTop: '12px' }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {item.utr && (
+                                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                                  Submitted UTR: <strong style={{ color: 'var(--text-primary)', fontSize: '0.85rem' }}>{item.utr}</strong>
+                                </div>
+                              )}
+                              {item.screenshot && (
+                                <div style={{ marginTop: '10px', marginBottom: '12px' }}>
+                                  <span style={{ fontSize: '0.75rem', color: '#a0a8c0', display: 'block', marginBottom: '4px' }}>Submitted Receipt:</span>
+                                  <img
+                                    src={item.screenshot}
+                                    alt="Receipt"
+                                    onClick={() => {
+                                      const w = window.open();
+                                      w.document.write(`<img src="${item.screenshot}" style="max-width:100%; max-height:100vh; display:block; margin:auto;">`);
+                                    }}
+                                    style={{ maxWidth: '100%', maxHeight: '180px', borderRadius: '6px', cursor: 'pointer' }}
+                                  />
+                                </div>
+                              )}
+
+                              {item.status === 'pending' && (
+                                <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                                  <button
+                                    onClick={() => handleAdminAction('approveTransaction', { transactionId: item.id })}
+                                    className="gradient-btn"
+                                    style={{ flex: 1, padding: '8px', borderRadius: '4px', fontSize: '0.8rem' }}
+                                  >
+                                    Approve
+                                  </button>
+                                  <button
+                                    onClick={() => handleAdminAction('rejectTransaction', { transactionId: item.id })}
+                                    style={{ flex: 1, padding: '8px', borderRadius: '4px', background: 'none', border: '1px solid var(--error)', color: 'var(--error)', fontSize: '0.8rem', cursor: 'pointer' }}
+                                  >
+                                    Reject
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
@@ -3068,6 +3273,15 @@ export default function FastPayApp() {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {/* Task 0: Registration Welcome Bonus */}
+            {renderTaskCard(
+              "task_registration_bonus",
+              "🎁 New REGISTRATION Bonus",
+              "Claim your ₹100 signup welcome reward. (One-time claim)",
+              "₹100 Reward",
+              tasksProgress?.task_registration_bonus
+            )}
+
             {/* Task 1 */}
             {renderTaskCard(
               "task_first_deposit",
@@ -3445,15 +3659,14 @@ export default function FastPayApp() {
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
           <div className="glass-panel" style={{ width: '100%', maxWidth: '440px', padding: '24px', position: 'relative' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3 style={{ fontSize: '1.2rem', fontWeight: 700 }} className="gradient-text">Fund Wallet Balance</h3>
+              <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#000' }}>Deposit Amount</h3>
               <button
                 onClick={() => { setShowDepositModal(false); setVirtualAccount(null); }}
-                style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}
+                style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '1.2rem', fontWeight: 'bold' }}
               >
-                Close
+                ✕
               </button>
             </div>
-
             {txMessage.text && (
               <div style={{
                 background: txMessage.type === 'success' ? 'rgba(0, 184, 148, 0.1)' : 'rgba(255, 118, 117, 0.1)',
@@ -3488,7 +3701,7 @@ export default function FastPayApp() {
                 <div style={{ background: 'rgba(253, 203, 110, 0.1)', color: 'var(--gold)', border: '1px solid rgba(253, 203, 110, 0.2)', padding: '12px', borderRadius: '8px', fontSize: '0.75rem', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
                   <Lock size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
                   <div>
-                    <strong>Secure Collision-Free Lock:</strong> This account details are exclusively mapped to your ID for the next 15 minutes. No other user can receive this details page during this window.
+                    <strong>Secure Collision-Free Lock:</strong> This account details are exclusively mapped to your ID for the next 15 minutes.
                   </div>
                 </div>
 
@@ -3500,8 +3713,22 @@ export default function FastPayApp() {
                   </div>
                 </div>
 
-                <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '0.85rem' }}>
+                {/* QR Code */}
+                <div style={{ background: '#fff', padding: '10px', borderRadius: '12px', width: '200px', height: '200px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=${virtualAccount?.upiId || 'fastpay@upi'}&pn=FastPay&am=${virtualAccount.amount}&cu=INR`)}`}
+                    alt="Payment QR Code"
+                    style={{ width: '180px', height: '180px' }}
+                  />
+                </div>
 
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textAlign: 'center', display: 'flex', justifyContent: 'center', gap: '6px', alignItems: 'center' }}>
+                  <span>UPI ID: <strong style={{ color: 'var(--text-primary)' }}>{virtualAccount?.upiId || 'fastpay@upi'}</strong></span>
+                  <button onClick={() => copyToClipboard(virtualAccount?.upiId || 'fastpay@upi')} style={{ background: 'none', border: 'none', color: 'var(--accent-secondary)', cursor: 'pointer' }}><Copy size={12} /></button>
+                </div>
+
+                {/* Bank details card */}
+                <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.85rem' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
                       <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '0.75rem' }}>Beneficiary Name</span>
@@ -3532,20 +3759,76 @@ export default function FastPayApp() {
                       <strong>{virtualAccount.bankName}</strong>
                     </div>
                   </div>
-
                 </div>
 
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textAlign: 'center' }}>
-                  Transfer <strong>₹{virtualAccount.amount}</strong> to the virtual banking details above. Deposits auto-settle upon detection.
+                {/* UTR Input field */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>12-Digit Transaction UTR / Ref Number</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    maxLength={12}
+                    placeholder="Enter 12-digit UTR ID"
+                    value={depositUtr}
+                    onChange={(e) => setDepositUtr(e.target.value.replace(/\D/g, ''))}
+                    required
+                  />
+                </div>
+
+                {/* Screenshot Upload field */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Upload Payment Screenshot / Receipt</label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="form-input"
+                    onChange={(e) => {
+                      const file = e.target.files[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                          setDepositScreenshot(reader.result);
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                    required
+                  />
+                  {depositScreenshot && (
+                    <div style={{ marginTop: '10px', textAlign: 'center' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Screenshot Preview:</span>
+                      <img
+                        src={depositScreenshot}
+                        alt="Screenshot Preview"
+                        style={{ maxWidth: '100%', maxHeight: '120px', borderRadius: '8px', border: '1px solid var(--glass-border)' }}
+                      />
+                    </div>
+                  )}
                 </div>
 
                 <button
-                  onClick={() => { setShowDepositModal(false); setVirtualAccount(null); }}
+                  onClick={handleDepositProofSubmit}
                   className="gradient-btn"
-                  style={{ padding: '12px', borderRadius: '10px' }}
+                  disabled={virtualAccountTimer === 0}
+                  style={{ width: '100%', padding: '14px', borderRadius: '10px', fontSize: '1rem', marginTop: '10px', opacity: virtualAccountTimer === 0 ? 0.5 : 1 }}
                 >
-                  Confirm Transfer Made
+                  Submit Deposit Details
                 </button>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '5px' }}>
+                  <button
+                    onClick={() => setVirtualAccount(null)}
+                    style={{ background: 'none', border: 'none', color: 'var(--accent-secondary)', cursor: 'pointer', fontSize: '0.85rem' }}
+                  >
+                    Go Back
+                  </button>
+                  <button
+                    onClick={() => { setShowDepositModal(false); setVirtualAccount(null); }}
+                    style={{ background: 'none', border: 'none', color: 'var(--error)', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
+                  >
+                    Cancel Deposit
+                  </button>
+                </div>
               </div>
             )}
           </div>

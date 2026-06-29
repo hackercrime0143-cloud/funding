@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import mongoose from 'mongoose';
 import connectDB from '@/lib/db';
 import { User, Order, Transaction } from '@/lib/models';
 import { getSessionFromCookies } from '@/lib/auth';
@@ -19,12 +20,14 @@ export async function GET(request) {
       return NextResponse.json({ error: 'User not found.' }, { status: 404 });
     }
 
+    const userIdObj = new mongoose.Types.ObjectId(session.id);
+
     // 1. Task 1: Check completed deposits
-    const hasDeposit = await Transaction.exists({ user_id: session.id, type: 'deposit', status: 'completed' });
+    const hasDeposit = await Transaction.exists({ user_id: userIdObj, type: 'deposit', status: 'completed' });
 
     // 2. Fetch active/completed orders
     const orders = await Order.find({ 
-      user_id: session.id, 
+      user_id: userIdObj, 
       status: { $in: ['active', 'completed', 'expired_pending_match'] } 
     });
     const totalSpent = orders.reduce((acc, o) => acc + o.price, 0);
@@ -36,6 +39,12 @@ export async function GET(request) {
     const claimedTasks = user.claimed_tasks || [];
 
     const taskProgress = {
+      task_registration_bonus: {
+        current: 1,
+        target: 1,
+        isCompleted: true,
+        claimed: claimedTasks.includes('task_registration_bonus')
+      },
       task_first_deposit: {
         current: hasDeposit ? 1 : 0,
         target: 1,
@@ -110,14 +119,19 @@ export async function POST(request) {
     let isCompleted = false;
     let rewardAmount = 0;
 
+    const userIdObj = new mongoose.Types.ObjectId(session.id);
+
     // Fetch required records to check completion status
-    if (taskId === 'task_first_deposit') {
-      const hasDeposit = await Transaction.exists({ user_id: session.id, type: 'deposit', status: 'completed' });
+    if (taskId === 'task_registration_bonus') {
+      isCompleted = true;
+      rewardAmount = 100.0;
+    } else if (taskId === 'task_first_deposit') {
+      const hasDeposit = await Transaction.exists({ user_id: userIdObj, type: 'deposit', status: 'completed' });
       isCompleted = !!hasDeposit;
       rewardAmount = 50.0;
     } else if (taskId === 'task_vol_5000') {
       const orders = await Order.find({ 
-        user_id: session.id, 
+        user_id: userIdObj, 
         status: { $in: ['active', 'completed', 'expired_pending_match'] } 
       });
       const totalSpent = orders.reduce((acc, o) => acc + o.price, 0);
@@ -126,7 +140,7 @@ export async function POST(request) {
       rewardAmount = 150.0;
     } else if (taskId === 'task_vol_10000') {
       const orders = await Order.find({ 
-        user_id: session.id, 
+        user_id: userIdObj, 
         status: { $in: ['active', 'completed', 'expired_pending_match'] } 
       });
       const totalSpent = orders.reduce((acc, o) => acc + o.price, 0);
@@ -135,7 +149,7 @@ export async function POST(request) {
       rewardAmount = 500.0;
     } else if (taskId === 'task_two_5000_orders') {
       const orders = await Order.find({ 
-        user_id: session.id, 
+        user_id: userIdObj, 
         status: { $in: ['active', 'completed', 'expired_pending_match'] } 
       });
       const count5000 = orders.filter(o => o.price === 5000).length;
@@ -143,7 +157,7 @@ export async function POST(request) {
       rewardAmount = 200.0;
     } else if (taskId === 'task_four_10000_orders') {
       const orders = await Order.find({ 
-        user_id: session.id, 
+        user_id: userIdObj, 
         status: { $in: ['active', 'completed', 'expired_pending_match'] } 
       });
       const count10000 = orders.filter(o => o.price === 10000).length;
@@ -168,7 +182,7 @@ export async function POST(request) {
     // Log the task reward as a completed transaction
     await Transaction.create({
       user_id: session.id,
-      type: 'task_reward',
+      type: taskId === 'task_registration_bonus' ? 'referral_bonus_signup' : 'task_reward',
       amount: rewardAmount,
       status: 'completed'
     });

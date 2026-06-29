@@ -109,8 +109,8 @@ export async function POST(request) {
     }
 
     // 6. Calculate starting balance
-    // Registration welcome balance is always ₹100
-    const initialBalance = 100.0;
+    // Registration starting balance is ₹0. Users claim the ₹100 registration bonus manually under Tasks.
+    const initialBalance = 0.0;
 
     // 7. Create User
     const newUser = await User.create({
@@ -123,14 +123,6 @@ export async function POST(request) {
       referred_by_id: referrer ? referrer._id : null,
       wallet_balance: initialBalance,
       role: 'user'
-    });
-
-    // Log signup welcome bonus transaction (₹100)
-    await Transaction.create({
-      user_id: newUser._id,
-      type: 'referral_bonus_signup',
-      amount: 100.0,
-      status: 'completed'
     });
 
     if (referrer) {

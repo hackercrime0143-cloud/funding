@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
-import { User, Scheme, Transaction, VirtualAccount } from '@/lib/models';
+import { User, Scheme, Transaction, VirtualAccount, Order } from '@/lib/models';
 import { getSessionFromCookies } from '@/lib/auth';
 
 export async function POST(request) {
@@ -97,12 +97,21 @@ export async function POST(request) {
       tx.status = 'completed';
       await tx.save();
 
-      // If it's a deposit, credit the user's wallet balance
+      // If it's a deposit, check if it was a Custom Scheme deposit or a normal deposit
       if (tx.type === 'deposit') {
-        await User.updateOne(
-          { _id: tx.user_id },
-          { $inc: { wallet_balance: tx.amount } }
-        );
+        if (tx.amount >= 100 && tx.amount <= 500) {
+          // Activate the custom scheme purchase order associated with the UTR
+          await Order.updateOne(
+            { user_id: tx.user_id, utr: tx.utr, status: 'pending' },
+            { $set: { status: 'active', last_payout_at: new Date() } }
+          );
+        } else {
+          // Normal deposit credits the user's wallet balance
+          await User.updateOne(
+            { _id: tx.user_id },
+            { $inc: { wallet_balance: tx.amount } }
+          );
+        }
         
         // Also unlock any associated virtual accounts
         if (tx.virtual_account_id) {
@@ -134,6 +143,14 @@ export async function POST(request) {
       // Fail the transaction
       tx.status = 'failed';
       await tx.save();
+
+      // If it's a deposit & custom scheme range, reject the custom order
+      if (tx.type === 'deposit' && tx.amount >= 100 && tx.amount <= 500) {
+        await Order.updateOne(
+          { user_id: tx.user_id, utr: tx.utr, status: 'pending' },
+          { $set: { status: 'rejected' } }
+        );
+      }
 
       // If it's a withdrawal, refund user wallet balance (since we deduct it upon request)
       if (tx.type === 'withdrawal') {

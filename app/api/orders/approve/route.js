@@ -52,10 +52,21 @@ export async function POST(request) {
       });
     }
 
-    // 2. Fetch scheme
-    const scheme = await Scheme.findById(order.scheme_id);
-    if (!scheme) {
-      return NextResponse.json({ error: 'Associated scheme not found.' }, { status: 404 });
+    // 2. Fetch or resolve scheme metadata
+    let scheme;
+    if (!order.scheme_id) {
+      scheme = {
+        name: 'Quick Deposit Scheme',
+        price: order.price,
+        daily_return_rate: 0.035,
+        days: 3,
+        total_return: order.price * (1 + 0.035 * 3)
+      };
+    } else {
+      scheme = await Scheme.findById(order.scheme_id);
+      if (!scheme) {
+        return NextResponse.json({ error: 'Associated scheme not found.' }, { status: 404 });
+      }
     }
 
     // 3. Fetch buyer details
@@ -64,8 +75,17 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Buyer user not found.' }, { status: 404 });
     }
 
-    // Approve the order
+    // Calculate first day's daily return yield immediately on approval
+    const dailyYield = order.price * scheme.daily_return_rate;
+
+    // Credit order price AND the first day's return yield directly to buyer's balance immediately!
+    buyer.wallet_balance += (order.price + dailyYield);
+    await buyer.save();
+
+    // Approve the order, decrement days_remaining by 1 (since 1 day was paid), and set last_payout_at
     order.status = 'active';
+    order.days_remaining = Math.max(0, scheme.days - 1);
+    order.last_payout_at = new Date();
     await order.save();
 
     // Mark the pending order_purchase transaction as completed
@@ -73,6 +93,14 @@ export async function POST(request) {
       { user_id: buyer._id, type: 'order_purchase', amount: -order.price, status: 'pending' },
       { $set: { status: 'completed' } }
     );
+
+    // Create a transaction log for the first day's yield payout
+    await Transaction.create({
+      user_id: buyer._id,
+      type: 'scheme_payout',
+      amount: dailyYield,
+      status: 'completed'
+    });
 
     // Distribute referral commissions
     // Level A (0.3%)

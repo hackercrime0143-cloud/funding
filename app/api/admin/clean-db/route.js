@@ -15,7 +15,7 @@ export async function GET(request) {
 
     let message = 'No stale index "accountNumber_1" found.';
     const hasStaleIndex = indexes.some(idx => idx.name === 'accountNumber_1');
-    
+
     if (hasStaleIndex) {
       await collection.dropIndex('accountNumber_1');
       message = 'Stale unique index "accountNumber_1" dropped successfully!';

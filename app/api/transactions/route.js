@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
-import { User, Transaction, VirtualAccount, BankDetails } from '@/lib/models';
+import { User, Transaction, VirtualAccount, BankDetails, Order, Scheme } from '@/lib/models';
 import { getSessionFromCookies } from '@/lib/auth';
 
 // Fetch user transactions
@@ -28,7 +28,9 @@ export async function GET(request) {
       virtual_account: t.virtual_account_id ? t.virtual_account_id.account_number : null,
       virtual_bank: t.virtual_account_id ? t.virtual_account_id.bank_name : null,
       virtual_beneficiary: t.virtual_account_id ? t.virtual_account_id.beneficiary_name : null,
-      virtual_ifsc: t.virtual_account_id ? t.virtual_account_id.ifsc : null
+      virtual_ifsc: t.virtual_account_id ? t.virtual_account_id.ifsc : null,
+      utr: t.utr || null,
+      screenshot: t.screenshot || null
     }));
 
     return NextResponse.json({ success: true, transactions });
@@ -137,6 +139,7 @@ export async function POST(request) {
           bankName: virtualAcc.bank_name,
           beneficiaryName: virtualAcc.beneficiary_name,
           ifsc: virtualAcc.ifsc,
+          upiId: virtualAcc.upi_id || '',
           expiresAt: lockUntil.toISOString()
         }
       });
@@ -193,5 +196,85 @@ export async function POST(request) {
   } catch (error) {
     console.error('Transaction creation error:', error);
     return NextResponse.json({ error: 'Server error processing transaction.' }, { status: 500 });
+  }
+}
+
+// Update transaction with UTR and screenshot proof (Deposits)
+export async function PATCH(request) {
+  try {
+    await connectDB();
+    const cookieHeader = request.headers.get('cookie');
+    const session = getSessionFromCookies(cookieHeader);
+
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 });
+    }
+
+    const { transactionId, utr, screenshot } = await request.json();
+
+    if (!transactionId || !utr || !screenshot) {
+      return NextResponse.json({ error: 'Transaction ID, UTR, and payment screenshot are required.' }, { status: 400 });
+    }
+
+    const utrRegex = /^\d{12}$/;
+    if (!utr || !utrRegex.test(utr.trim())) {
+      return NextResponse.json({ error: 'Please enter a valid 12-digit UTR/Transaction Ref number.' }, { status: 400 });
+    }
+
+    // Check duplicate UTR in both Transactions and Orders
+    const duplicateTx = await Transaction.findOne({ utr: utr.trim() });
+    const duplicateOrder = await Order.findOne({ utr: utr.trim() });
+    if (duplicateTx || duplicateOrder) {
+      return NextResponse.json({ error: 'This UTR has already been submitted for verification.' }, { status: 400 });
+    }
+
+    const tx = await Transaction.findById(transactionId);
+    if (!tx) {
+      return NextResponse.json({ error: 'Transaction not found.' }, { status: 404 });
+    }
+
+    if (tx.status !== 'pending' || tx.type !== 'deposit') {
+      return NextResponse.json({ error: 'Transaction cannot be updated.' }, { status: 400 });
+    }
+
+    tx.utr = utr.trim();
+    tx.screenshot = screenshot;
+    await tx.save();
+
+    // Custom Deposit Scheme auto-creation:
+    // If the deposit amount is between ₹100 and ₹500 inclusive:
+    if (tx.amount >= 100 && tx.amount <= 500) {
+      // Check if an order already exists for this UTR to prevent double creation
+      const existingOrder = await Order.findOne({ utr: utr.trim() });
+      if (!existingOrder) {
+        // Create custom dynamic investment scheme
+        const customScheme = await Scheme.create({
+          name: `Quick Deposit Scheme (₹${tx.amount})`,
+          price: tx.amount,
+          daily_return_rate: 0.035, // 3.5%
+          days: 3,
+          total_return: tx.amount * (1 + 0.035 * 3) // Principal + Profit
+        });
+
+        // Create pending order associated with the transaction
+        await Order.create({
+          user_id: tx.user_id,
+          scheme_id: customScheme._id,
+          price: tx.amount,
+          daily_income: tx.amount * 0.035,
+          total_payout: tx.amount * (1 + 0.035 * 3),
+          days_remaining: 3,
+          status: 'pending',
+          utr: utr.trim(),
+          screenshot: screenshot,
+          virtual_account_id: tx.virtual_account_id
+        });
+      }
+    }
+
+    return NextResponse.json({ success: true, message: 'Deposit payment proof submitted successfully!' });
+  } catch (error) {
+    console.error('Transaction patch error:', error);
+    return NextResponse.json({ error: 'Failed to update transaction proof.' }, { status: 500 });
   }
 }

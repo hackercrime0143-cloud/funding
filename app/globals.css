@@ -5,14 +5,14 @@
   --bg-primary: #f5f6fa;
   --bg-secondary: #ffffff;
   --bg-tertiary: #f1f3f9;
-  --accent-primary: #6c5ce7;
-  --accent-secondary: #00cec9;
-  --text-primary: #1e272e;
-  --text-secondary: #7f8c8d;
-  --border-glow: rgba(108, 92, 231, 0.08);
-  --success: #00b894;
-  --error: #d63031;
-  --gold: #e1b12c;
+  --accent-primary: #000000;
+  --accent-secondary: #000000;
+  --text-primary: #000000;
+  --text-secondary: #2c3e50;
+  --border-glow: rgba(0, 0, 0, 0.05);
+  --success: #000000;
+  --error: #000000;
+  --gold: #000000;
   --card-shadow: 0 8px 24px 0 rgba(0, 0, 0, 0.08);
   --glass-bg: rgba(255, 255, 255, 0.85);
   --glass-border: rgba(0, 0, 0, 0.08);
@@ -58,9 +58,7 @@ body {
 
 /* Beautiful custom gradients */
 .gradient-text {
-  background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: #000000 !important;
 }
 
 .gradient-btn {

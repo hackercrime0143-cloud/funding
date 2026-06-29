@@ -129,6 +129,8 @@ export async function GET(request) {
       amount: t.amount,
       status: t.status,
       virtual_account_id: t.virtual_account_id ? t.virtual_account_id.toString() : null,
+      utr: t.utr || null,
+      screenshot: t.screenshot || null,
       created_at: t.created_at
     }));
 

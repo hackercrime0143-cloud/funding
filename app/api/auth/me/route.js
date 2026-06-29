@@ -20,8 +20,12 @@ export async function GET(request) {
     let balanceChange = 0;
     for (const order of activeOrders) {
       const lastPayout = new Date(order.last_payout_at);
-      const diffMs = now - lastPayout;
-      const diffDays = Math.floor(diffMs / (24 * 60 * 60 * 1000)); // Standard 24h interval
+      
+      // Calculate calendar days difference (triggers daily payout immediately after 12:00 midnight)
+      const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const lastPayoutMidnight = new Date(lastPayout.getFullYear(), lastPayout.getMonth(), lastPayout.getDate());
+      const diffMs = todayMidnight - lastPayoutMidnight;
+      const diffDays = Math.floor(diffMs / (24 * 60 * 60 * 1000));
 
       if (diffDays > 0) {
         const daysToPay = Math.min(diffDays, order.days_remaining);

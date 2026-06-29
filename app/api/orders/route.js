@@ -73,18 +73,36 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 });
     }
 
-    const { schemeId, utr, screenshot, isDraft } = await request.json();
+    const requestData = await request.json();
+    const { schemeId, utr, screenshot, isDraft } = requestData;
 
     if (!schemeId) {
       return NextResponse.json({ error: 'Scheme ID is required.' }, { status: 400 });
     }
 
-    const scheme = await Scheme.findById(schemeId);
-    if (!scheme) {
-      return NextResponse.json({ error: 'Scheme not found.' }, { status: 404 });
+    let scheme;
+    let dailyIncome;
+    if (schemeId === 'custom_deposit_scheme') {
+      const customPrice = parseFloat(requestData.price);
+      if (isNaN(customPrice) || customPrice <= 0) {
+        return NextResponse.json({ error: 'Invalid deposit amount.' }, { status: 400 });
+      }
+      scheme = {
+        _id: null,
+        name: 'Quick Deposit Scheme',
+        price: customPrice,
+        daily_return_rate: 0.035, // 3.5%
+        days: 3,
+        total_return: customPrice * (1 + 0.035 * 3)
+      };
+      dailyIncome = customPrice * 0.035;
+    } else {
+      scheme = await Scheme.findById(schemeId);
+      if (!scheme) {
+        return NextResponse.json({ error: 'Scheme not found.' }, { status: 404 });
+      }
+      dailyIncome = scheme.price * scheme.daily_return_rate;
     }
-
-    const dailyIncome = scheme.price * scheme.daily_return_rate;
 
     let finalUtr = utr;
     let initialStatus = 'pending';
