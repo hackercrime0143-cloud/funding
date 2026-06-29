@@ -104,6 +104,38 @@ export async function POST(request) {
       dailyIncome = scheme.price * scheme.daily_return_rate;
     }
 
+    if (isDraft) {
+      // Ensure there are no duplicate pending payments created for the same purchase
+      const existingPending = await Order.findOne({
+        user_id: session.id,
+        scheme_id: schemeId === 'custom_deposit_scheme' ? null : scheme._id,
+        status: 'pending',
+        price: scheme.price,
+        utr: { $regex: /^DRAFT-/ }
+      });
+
+      if (existingPending) {
+        const matchedVa = await VirtualAccount.findById(existingPending.virtual_account_id);
+        return NextResponse.json({
+          success: true,
+          orderId: existingPending._id.toString(),
+          depositDetails: matchedVa ? {
+            accountNumber: matchedVa.account_number,
+            bankName: matchedVa.bank_name,
+            beneficiaryName: matchedVa.beneficiary_name,
+            ifsc: matchedVa.ifsc,
+            upiId: matchedVa.upi_id
+          } : {
+            accountNumber: "912010087654321",
+            bankName: "Axis Bank",
+            beneficiaryName: "FastPay Ecosystem",
+            ifsc: "UTIB0000123",
+            upiId: "fastpay@upi"
+          }
+        });
+      }
+    }
+
     let finalUtr = utr;
     let initialStatus = 'pending';
 

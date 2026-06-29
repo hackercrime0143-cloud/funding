@@ -770,6 +770,49 @@ export default function FastPayApp() {
     }
   };
 
+  const handleReopenPendingPayment = (order) => {
+    let scheme = schemes.find(s => s.id === order.scheme_id);
+    if (!scheme && !order.scheme_id) {
+      scheme = {
+        id: 'custom_deposit_scheme',
+        name: 'Quick Deposit Scheme',
+        price: order.price,
+        daily_return_rate: 0.035, // 3.5%
+        days: 3,
+        total_return: order.price * (1 + 0.035 * 3)
+      };
+    }
+    if (scheme) {
+      if (user && (!user.isTelegramChannelJoined || !user.isTelegramGroupJoined)) {
+        setShowTelegramGate(true);
+        return;
+      }
+      setCurrentDraftOrderId(order.id);
+      setActiveOrderDetails(scheme);
+      setActiveOrderBankDetails({
+        accountNumber: order.virtual_account || "912010087654321",
+        bankName: order.virtual_bank || "Axis Bank",
+        beneficiaryName: order.virtual_beneficiary || "FastPay Ecosystem",
+        ifsc: order.virtual_ifsc || "UTIB0000123",
+        upiId: order.virtual_upi || "fastpay@upi"
+      });
+
+      // Calculate countdown timer dynamically based on order's created_at
+      const createdAt = new Date(order.created_at);
+      const now = new Date();
+      const elapsedSecs = Math.floor((now - createdAt) / 1000);
+      const remainingSecs = Math.max(0, 900 - elapsedSecs);
+      setPaymentTimer(remainingSecs);
+
+      setPaymentStep(2);
+      setPaymentUtr(order.utr && !order.utr.startsWith('DRAFT-') ? order.utr : '');
+      setPaymentScreenshot(order.screenshot || null);
+      setSelectedHistoryItem(null);
+    } else {
+      alert('Associated scheme details not found.');
+    }
+  };
+
   const handleApproveOrder = async (orderId, action = 'approve') => {
     try {
       const res = await fetch('/api/orders/approve', {
@@ -1337,9 +1380,7 @@ export default function FastPayApp() {
             </div>
             <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
               <button
-                disabled={true}
-                style={{ flex: 1, padding: '12px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', color: 'var(--text-secondary)', cursor: 'not-allowed', opacity: 0.6 }}
-                title="Please purchase investment schemes directly to deposit funds"
+                style={{ flex: 1, padding: '12px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', color: 'var(--text-secondary)', pointerEvents: 'none', cursor: 'default' }}
               >
                 <Plus size={16} /> Deposit
               </button>
@@ -1959,7 +2000,16 @@ export default function FastPayApp() {
                   }
 
                   return (
-                    <div key={order.id} className="glass-panel" style={{ padding: '16px', borderLeft: `3px solid ${statusColor}` }}>
+                    <div
+                      key={order.id}
+                      className={`glass-panel ${order.status === 'pending' ? 'interactive-card' : ''}`}
+                      onClick={order.status === 'pending' ? () => handleReopenPendingPayment(order) : undefined}
+                      style={{
+                        padding: '16px',
+                        borderLeft: `3px solid ${statusColor}`,
+                        cursor: order.status === 'pending' ? 'pointer' : 'default'
+                      }}
+                    >
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
                         <h4 style={{ fontWeight: 600 }}>{order.scheme_name}</h4>
                         <span style={{
@@ -3983,30 +4033,7 @@ export default function FastPayApp() {
 
               {selectedHistoryItem.itemType === 'order' && selectedHistoryItem.status === 'pending' && (
                 <button
-                  onClick={() => {
-                    const scheme = schemes.find(s => s.id === selectedHistoryItem.raw.scheme_id);
-                    if (scheme) {
-                      if (user && (!user.isTelegramChannelJoined || !user.isTelegramGroupJoined)) {
-                        setShowTelegramGate(true);
-                        return;
-                      }
-                      setCurrentDraftOrderId(selectedHistoryItem.rawId);
-                      setActiveOrderDetails(scheme);
-                      setActiveOrderBankDetails({
-                        accountNumber: selectedHistoryItem.raw.virtual_account,
-                        bankName: selectedHistoryItem.raw.virtual_bank,
-                        beneficiaryName: selectedHistoryItem.raw.virtual_beneficiary,
-                        ifsc: selectedHistoryItem.raw.virtual_ifsc,
-                        upiId: selectedHistoryItem.raw.virtual_upi || "fastpay@upi"
-                      });
-                      setPaymentStep(2);
-                      setPaymentUtr('');
-                      setPaymentScreenshot(null);
-                      setSelectedHistoryItem(null);
-                    } else {
-                      alert('Associated scheme details not found.');
-                    }
-                  }}
+                  onClick={() => handleReopenPendingPayment(selectedHistoryItem.raw)}
                   className="gradient-btn"
                   style={{ width: '100%', padding: '12px', borderRadius: '10px', fontSize: '0.9rem', marginTop: '16px' }}
                 >
