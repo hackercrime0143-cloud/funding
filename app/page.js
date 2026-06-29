@@ -907,6 +907,7 @@ export default function FastPayApp() {
 
     // Add transactions
     txHistory.forEach(tx => {
+      if (tx.type === 'order_purchase' || tx.type === 'order_purchase_failed') return;
       feed.push({
         id: `tx-${tx.id}`,
         rawId: tx.id,
@@ -1425,7 +1426,7 @@ export default function FastPayApp() {
                 {getUnifiedHistory().slice(0, 8).map((item) => (
                   <div
                     key={item.id}
-                    onClick={item.type === 'deposit' ? undefined : () => setSelectedHistoryItem(item)}
+                    onClick={item.status === 'pending' && item.itemType === 'order' ? () => handleReopenPendingPayment(item.raw) : (item.type === 'deposit' ? undefined : () => setSelectedHistoryItem(item))}
                     className={`glass-panel ${item.type === 'deposit' ? '' : 'interactive-card'}`}
                     style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: item.type === 'deposit' ? 'default' : 'pointer' }}
                   >
@@ -1831,12 +1832,12 @@ export default function FastPayApp() {
           {/* Ledger History List */}
           <div>
             {(() => {
-              const filteredList = txHistory.filter((tx) => {
+              const filteredList = getUnifiedHistory().filter((item) => {
                 if (ledgerFilter === 'all') return true;
-                if (ledgerFilter === 'pending') return tx.status === 'pending';
-                if (ledgerFilter === 'successful') return tx.status === 'completed';
-                if (ledgerFilter === 'failed') return tx.status === 'failed' || tx.status === 'rejected' || tx.status === 'cancelled';
-                if (ledgerFilter === 'withdrawals') return tx.type === 'withdrawal';
+                if (ledgerFilter === 'pending') return item.status === 'pending';
+                if (ledgerFilter === 'successful') return item.status === 'completed' || item.status === 'active';
+                if (ledgerFilter === 'failed') return item.status === 'failed' || item.status === 'rejected' || item.status === 'cancelled';
+                if (ledgerFilter === 'withdrawals') return item.type === 'withdrawal';
                 return true;
               });
 
@@ -1850,35 +1851,40 @@ export default function FastPayApp() {
 
               return (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {filteredList.map((tx) => (
-                    <div key={tx.id} className="glass-panel" style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  {filteredList.map((item) => (
+                    <div
+                      key={item.id}
+                      onClick={item.status === 'pending' && item.itemType === 'order' ? () => handleReopenPendingPayment(item.raw) : (item.itemType === 'transaction' && item.type === 'deposit' ? undefined : () => setSelectedHistoryItem(item))}
+                      className={`glass-panel ${(item.itemType === 'transaction' && item.type === 'deposit') ? '' : 'interactive-card'}`}
+                      style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: (item.itemType === 'transaction' && item.type === 'deposit') ? 'default' : 'pointer' }}
+                    >
                       <div>
-                        <div style={{ fontWeight: 600, fontSize: '0.85rem', textTransform: 'capitalize', color: 'var(--text-primary)' }}>
-                          {tx.type.replace(/_/g, ' ')}
+                        <div style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-primary)' }}>
+                          {item.title}
                         </div>
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                          {new Date(tx.created_at).toLocaleString()}
+                          {item.date.toLocaleString()}
                         </div>
                       </div>
                       <div style={{ textAlign: 'right' }}>
                         <div style={{
                           fontWeight: 700,
                           fontSize: '0.9rem',
-                          color: tx.amount > 0 ? 'var(--success)' : 'var(--text-primary)'
+                          color: item.amount > 0 ? 'var(--success)' : 'var(--text-primary)'
                         }}>
-                          {tx.amount > 0 ? `+₹${tx.amount.toFixed(2)}` : `-₹${Math.abs(tx.amount).toFixed(2)}`}
+                          {item.amount > 0 ? `+₹${item.amount.toFixed(2)}` : `-₹${Math.abs(item.amount).toFixed(2)}`}
                         </div>
                         <span style={{
                           fontSize: '0.7rem',
-                          background: tx.status === 'completed' ? 'rgba(0, 184, 148, 0.1)' :
-                            tx.status === 'pending' ? 'rgba(253, 203, 110, 0.1)' : 'rgba(255, 118, 117, 0.1)',
-                          color: tx.status === 'completed' ? 'var(--success)' :
-                            tx.status === 'pending' ? 'var(--gold)' : 'var(--error)',
+                          background: item.status === 'completed' || item.status === 'active' ? 'rgba(0, 184, 148, 0.1)' :
+                            item.status === 'pending' ? 'rgba(253, 203, 110, 0.1)' : 'rgba(255, 118, 117, 0.1)',
+                          color: item.status === 'completed' || item.status === 'active' ? 'var(--success)' :
+                            item.status === 'pending' ? 'var(--gold)' : 'var(--error)',
                           padding: '1px 6px',
                           borderRadius: '4px',
                           textTransform: 'capitalize'
                         }}>
-                          {tx.status}
+                          {item.status}
                         </span>
                       </div>
                     </div>
@@ -1966,13 +1972,13 @@ export default function FastPayApp() {
           {/* Your Investment Schemes */}
           <div>
             <h3 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '12px' }} className="gradient-text">Your Subscribed Schemes</h3>
-            {orders.filter(order => !order.utr.startsWith('DRAFT-')).length === 0 ? (
+            {orders.filter(order => order.status !== 'cancelled' && order.status !== 'failed').length === 0 ? (
               <div className="glass-panel" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
                 You have no active investment schemes yet.
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '340px', overflowY: 'auto', paddingRight: '4px' }}>
-                {orders.filter(order => !order.utr.startsWith('DRAFT-')).map((order) => {
+                {orders.filter(order => order.status !== 'cancelled' && order.status !== 'failed').map((order) => {
                   let statusBg = 'rgba(255,255,255,0.05)';
                   let statusColor = 'var(--text-secondary)';
                   let statusLabel = 'Completed';
@@ -3330,14 +3336,6 @@ export default function FastPayApp() {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {/* Task 0: Registration Welcome Bonus */}
-            {renderTaskCard(
-              "task_registration_bonus",
-              "🎁 New REGISTRATION Bonus",
-              "Claim your ₹100 signup welcome reward. (One-time claim)",
-              "₹100 Reward",
-              tasksProgress?.task_registration_bonus
-            )}
 
             {/* Task 1 */}
             {renderTaskCard(

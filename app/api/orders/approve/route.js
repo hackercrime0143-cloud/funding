@@ -40,11 +40,7 @@ export async function POST(request) {
       order.status = 'rejected';
       await order.save();
 
-      // 2. Mark the pending order_purchase transaction as failed
-      await Transaction.updateOne(
-        { user_id: order.user_id, type: 'order_purchase', amount: -order.price, status: 'pending' },
-        { $set: { status: 'failed' } }
-      );
+
 
       return NextResponse.json({
         success: true,
@@ -88,11 +84,7 @@ export async function POST(request) {
     order.last_payout_at = new Date();
     await order.save();
 
-    // Mark the pending order_purchase transaction as completed
-    await Transaction.updateOne(
-      { user_id: buyer._id, type: 'order_purchase', amount: -order.price, status: 'pending' },
-      { $set: { status: 'completed' } }
-    );
+
 
     // Create a transaction log for the first day's yield payout
     await Transaction.create({

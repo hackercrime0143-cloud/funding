@@ -199,16 +199,6 @@ export async function POST(request) {
       virtual_account_id: virtualAcc ? virtualAcc._id : null
     });
 
-    if (!isDraft) {
-      // Log transaction as 'pending'
-      await Transaction.create({
-        user_id: session.id,
-        type: 'order_purchase',
-        amount: -scheme.price,
-        status: 'pending'
-      });
-    }
-
     const fallbackVa = {
       accountNumber: "912010087654321",
       bankName: "Axis Bank",
@@ -264,16 +254,6 @@ export async function PATCH(request) {
 
     if (status) {
       order.status = status;
-      
-      // If order is updated to failed or cancelled, create a failed transaction log
-      if (status === 'failed' || status === 'cancelled') {
-        await Transaction.create({
-          user_id: session.id,
-          type: 'order_purchase_failed',
-          amount: -order.price,
-          status: 'failed'
-        });
-      }
     }
 
     if (utr) {
@@ -295,15 +275,7 @@ export async function PATCH(request) {
       order.screenshot = screenshot;
     }
 
-    // If UTR is updated (meaning they finalized payment info), also create the pending transaction
-    if (utr && screenshot && order.status === 'pending') {
-      await Transaction.create({
-        user_id: session.id,
-        type: 'order_purchase',
-        amount: -order.price,
-        status: 'pending'
-      });
-    }
+
 
     await order.save();
 

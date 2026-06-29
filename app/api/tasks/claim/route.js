@@ -22,8 +22,9 @@ export async function GET(request) {
 
     const userIdObj = new mongoose.Types.ObjectId(session.id);
 
-    // 1. Task 1: Check completed deposits
-    const hasDeposit = await Transaction.exists({ user_id: userIdObj, type: 'deposit', status: 'completed' });
+    // 1. Task 1: Check completed deposits (both direct legacy deposits and approved orders)
+    const hasDeposit = (await Transaction.exists({ user_id: userIdObj, type: 'deposit', status: 'completed' })) ||
+                       (await Order.exists({ user_id: userIdObj, status: { $in: ['active', 'completed'] } }));
 
     // 2. Fetch active/completed orders
     const orders = await Order.find({ 
@@ -39,12 +40,6 @@ export async function GET(request) {
     const claimedTasks = user.claimed_tasks || [];
 
     const taskProgress = {
-      task_registration_bonus: {
-        current: 1,
-        target: 1,
-        isCompleted: true,
-        claimed: claimedTasks.includes('task_registration_bonus')
-      },
       task_first_deposit: {
         current: hasDeposit ? 1 : 0,
         target: 1,
@@ -122,11 +117,9 @@ export async function POST(request) {
     const userIdObj = new mongoose.Types.ObjectId(session.id);
 
     // Fetch required records to check completion status
-    if (taskId === 'task_registration_bonus') {
-      isCompleted = true;
-      rewardAmount = 100.0;
-    } else if (taskId === 'task_first_deposit') {
-      const hasDeposit = await Transaction.exists({ user_id: userIdObj, type: 'deposit', status: 'completed' });
+    if (taskId === 'task_first_deposit') {
+      const hasDeposit = (await Transaction.exists({ user_id: userIdObj, type: 'deposit', status: 'completed' })) ||
+                         (await Order.exists({ user_id: userIdObj, status: { $in: ['active', 'completed'] } }));
       isCompleted = !!hasDeposit;
       rewardAmount = 50.0;
     } else if (taskId === 'task_vol_5000') {
