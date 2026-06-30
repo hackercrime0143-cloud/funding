@@ -795,13 +795,6 @@ export default function FastPayApp() {
   };
 
   const handleCloseModal = async () => {
-    if (paymentStep === 2) {
-      if (paymentTimer === 0) {
-        await handleUpdateDraftStatus('failed');
-      } else {
-        await handleUpdateDraftStatus('cancelled');
-      }
-    }
     setActiveOrderDetails(null);
     setPaymentStep(1);
     setPaymentUtr('');
@@ -816,7 +809,7 @@ export default function FastPayApp() {
       const res = await fetch('/api/orders', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderId: currentDraftOrderId, utr, screenshot, status: 'pending' }),
+        body: JSON.stringify({ orderId: currentDraftOrderId, utr, screenshot, status: 'confirmation_pending' }),
       });
       const data = await res.json();
       if (data.success) {
@@ -1001,7 +994,7 @@ export default function FastPayApp() {
         type: 'order',
         title: `Purchase: ${order.scheme_name}`,
         amount: -order.price, // negative to show expenditure/investment
-        status: order.status === 'pending' ? 'pending' : order.days_remaining > 0 ? 'active' : 'completed',
+        status: order.status,
         date: new Date(order.created_at),
         raw: order
       });
@@ -1523,14 +1516,14 @@ export default function FastPayApp() {
                       <span style={{
                         fontSize: '0.65rem',
                         background: item.status === 'completed' || item.status === 'active' ? 'rgba(0, 184, 148, 0.1)' :
-                          item.status === 'pending' ? 'rgba(253, 203, 110, 0.1)' : 'rgba(255, 118, 117, 0.1)',
+                          item.status === 'pending' || item.status === 'confirmation_pending' ? 'rgba(253, 203, 110, 0.1)' : 'rgba(255, 118, 117, 0.1)',
                         color: item.status === 'completed' || item.status === 'active' ? 'var(--success)' :
-                          item.status === 'pending' ? 'var(--gold)' : 'var(--error)',
+                          item.status === 'pending' || item.status === 'confirmation_pending' ? 'var(--gold)' : 'var(--error)',
                         padding: '1px 6px',
                         borderRadius: '4px',
                         textTransform: 'capitalize'
                       }}>
-                        {item.status}
+                        {item.status === 'confirmation_pending' ? 'Confirmation Pending' : item.status === 'pending' ? 'Pending' : item.status}
                       </span>
                     </div>
                   </div>
@@ -1739,7 +1732,26 @@ export default function FastPayApp() {
             <button
               onClick={() => {
                 if (apkDownloadUrl) {
-                  window.open(apkDownloadUrl, '_blank');
+                  fetch(apkDownloadUrl)
+                    .then(response => response.blob())
+                    .then(blob => {
+                      const url = window.URL.createObjectURL(blob);
+                      const link = document.createElement('a');
+                      link.href = url;
+                      link.setAttribute('download', apkDownloadUrl.split('/').pop() || 'fastpay.apk');
+                      document.body.appendChild(link);
+                      link.click();
+                      document.body.removeChild(link);
+                      window.URL.revokeObjectURL(url);
+                    })
+                    .catch(() => {
+                      const link = document.createElement('a');
+                      link.href = apkDownloadUrl;
+                      link.setAttribute('download', 'fastpay.apk');
+                      document.body.appendChild(link);
+                      link.click();
+                      document.body.removeChild(link);
+                    });
                 } else {
                   alert('App download URL is currently not configured by the admin.');
                 }
@@ -1914,7 +1926,7 @@ export default function FastPayApp() {
             {(() => {
               const filteredList = getUnifiedHistory().filter((item) => {
                 if (ledgerFilter === 'all') return true;
-                if (ledgerFilter === 'pending') return item.status === 'pending';
+                if (ledgerFilter === 'pending') return item.status === 'pending' || item.status === 'confirmation_pending';
                 if (ledgerFilter === 'successful') return item.status === 'completed' || item.status === 'active';
                 if (ledgerFilter === 'failed') return item.status === 'failed' || item.status === 'rejected' || item.status === 'cancelled';
                 if (ledgerFilter === 'withdrawals') return item.type === 'withdrawal';
@@ -1957,14 +1969,14 @@ export default function FastPayApp() {
                         <span style={{
                           fontSize: '0.7rem',
                           background: item.status === 'completed' || item.status === 'active' ? 'rgba(0, 184, 148, 0.1)' :
-                            item.status === 'pending' ? 'rgba(253, 203, 110, 0.1)' : 'rgba(255, 118, 117, 0.1)',
+                            item.status === 'pending' || item.status === 'confirmation_pending' ? 'rgba(253, 203, 110, 0.1)' : 'rgba(255, 118, 117, 0.1)',
                           color: item.status === 'completed' || item.status === 'active' ? 'var(--success)' :
-                            item.status === 'pending' ? 'var(--gold)' : 'var(--error)',
+                            item.status === 'pending' || item.status === 'confirmation_pending' ? 'var(--gold)' : 'var(--error)',
                           padding: '1px 6px',
                           borderRadius: '4px',
                           textTransform: 'capitalize'
                         }}>
-                          {item.status}
+                          {item.status === 'confirmation_pending' ? 'Confirmation Pending' : item.status === 'pending' ? 'Pending' : item.status}
                         </span>
                       </div>
                     </div>
@@ -2066,7 +2078,11 @@ export default function FastPayApp() {
                   if (order.status === 'pending') {
                     statusBg = 'rgba(253, 203, 110, 0.15)';
                     statusColor = '#fdcb6e';
-                    statusLabel = 'Verification Pending';
+                    statusLabel = 'Pending';
+                  } else if (order.status === 'confirmation_pending') {
+                    statusBg = 'rgba(9, 132, 227, 0.15)';
+                    statusColor = '#0984e3';
+                    statusLabel = 'Confirmation Pending';
                   } else if (order.status === 'active' || order.status === 'expired_pending_match') {
                     statusBg = 'rgba(0, 184, 148, 0.1)';
                     statusColor = 'var(--success)';
@@ -3326,7 +3342,7 @@ export default function FastPayApp() {
               {(() => {
                 let filtered = [];
                 if (adminOrderFilter === 'pending') {
-                  filtered = adminOrders.filter(o => o.status === 'pending');
+                  filtered = adminOrders.filter(o => o.status === 'confirmation_pending');
                 } else if (adminOrderFilter === 'active') {
                   filtered = adminOrders.filter(o => o.status === 'active');
                 } else if (adminOrderFilter === 'cancelled') {
@@ -3353,7 +3369,7 @@ export default function FastPayApp() {
                           style={{
                             padding: '16px',
                             cursor: 'pointer',
-                            borderLeft: order.status === 'pending' ? '3px solid var(--gold)' : order.status === 'active' ? '3px solid var(--success)' : '3px solid var(--error)'
+                            borderLeft: order.status === 'confirmation_pending' || order.status === 'pending' ? '3px solid var(--gold)' : order.status === 'active' ? '3px solid var(--success)' : '3px solid var(--error)'
                           }}
                         >
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -3362,14 +3378,14 @@ export default function FastPayApp() {
                               <span style={{
                                 fontSize: '0.65rem',
                                 background: order.status === 'active' ? 'rgba(0, 184, 148, 0.1)' :
-                                  order.status === 'pending' ? 'rgba(253, 203, 110, 0.1)' : 'rgba(255, 118, 117, 0.1)',
+                                  order.status === 'pending' || order.status === 'confirmation_pending' ? 'rgba(253, 203, 110, 0.1)' : 'rgba(255, 118, 117, 0.1)',
                                 color: order.status === 'active' ? 'var(--success)' :
-                                  order.status === 'pending' ? 'var(--gold)' : 'var(--error)',
+                                  order.status === 'pending' || order.status === 'confirmation_pending' ? 'var(--gold)' : 'var(--error)',
                                 padding: '1px 6px',
                                 borderRadius: '4px',
                                 textTransform: 'capitalize',
                                 fontWeight: 600
-                              }}>{order.status}</span>
+                              }}>{order.status === 'confirmation_pending' ? 'Confirmation Pending' : order.status === 'pending' ? 'Pending' : order.status}</span>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                               <strong style={{ color: 'var(--accent-secondary)' }}>₹{order.price}</strong>
@@ -3418,7 +3434,7 @@ export default function FastPayApp() {
                                 </div>
                               )}
 
-                              {order.status === 'pending' && (
+                              {order.status === 'confirmation_pending' && (
                                 <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
                                   <button
                                     onClick={(e) => { e.stopPropagation(); handleApproveOrder(order.id, 'approve'); }}

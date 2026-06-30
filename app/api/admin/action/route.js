@@ -102,7 +102,7 @@ export async function POST(request) {
         if (tx.amount >= 100 && tx.amount <= 500) {
           // Activate the custom scheme purchase order associated with the UTR
           await Order.updateOne(
-            { user_id: tx.user_id, utr: tx.utr, status: 'pending' },
+            { user_id: tx.user_id, utr: tx.utr, status: 'confirmation_pending' },
             { $set: { status: 'active', last_payout_at: new Date() } }
           );
         } else {
@@ -147,7 +147,7 @@ export async function POST(request) {
       // If it's a deposit & custom scheme range, reject the custom order
       if (tx.type === 'deposit' && tx.amount >= 100 && tx.amount <= 500) {
         await Order.updateOne(
-          { user_id: tx.user_id, utr: tx.utr, status: 'pending' },
+          { user_id: tx.user_id, utr: tx.utr, status: 'confirmation_pending' },
           { $set: { status: 'rejected' } }
         );
       }

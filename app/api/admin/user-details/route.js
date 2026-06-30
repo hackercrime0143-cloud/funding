@@ -87,12 +87,12 @@ export async function GET(request) {
         totalProfit: totalProfit,
         activeInvestment: activeInvestmentSum,
         referralIncome: referralCommissionsSum,
-        pendingIncome: allOrders.filter(o => o.status === 'pending').reduce((acc, o) => acc + o.price, 0)
+        pendingIncome: allOrders.filter(o => o.status === 'pending' || o.status === 'confirmation_pending').reduce((acc, o) => acc + o.price, 0)
       },
       ordersCount: {
         total: allOrders.length,
         active: allOrders.filter(o => o.status === 'active').length,
-        pending: allOrders.filter(o => o.status === 'pending').length,
+        pending: allOrders.filter(o => o.status === 'pending' || o.status === 'confirmation_pending').length,
         completed: allOrders.filter(o => o.status === 'completed').length,
         cancelled: allOrders.filter(o => o.status === 'cancelled').length,
         failed: allOrders.filter(o => o.status === 'failed').length

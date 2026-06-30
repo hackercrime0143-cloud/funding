@@ -30,7 +30,7 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Order not found.' }, { status: 404 });
     }
 
-    if (order.status !== 'pending') {
+    if (order.status !== 'confirmation_pending') {
       return NextResponse.json({ error: 'Order is already approved, rejected, or processed.' }, { status: 400 });
     }
 
