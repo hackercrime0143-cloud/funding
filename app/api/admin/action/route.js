@@ -95,6 +95,7 @@ export async function POST(request) {
 
       // Complete the transaction
       tx.status = 'completed';
+      tx.updated_at = new Date();
       await tx.save();
 
       // If it's a deposit, check if it was a Custom Scheme deposit or a normal deposit
@@ -142,6 +143,7 @@ export async function POST(request) {
 
       // Fail the transaction
       tx.status = 'failed';
+      tx.updated_at = new Date();
       await tx.save();
 
       // If it's a deposit & custom scheme range, reject the custom order

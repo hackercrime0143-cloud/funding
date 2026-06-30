@@ -110,6 +110,21 @@ export default function FastPayApp() {
   const [adminUserSubView, setAdminUserSubView] = useState(null); // 'deposits', 'withdrawals', 'orders', 'commissions', null
   const [adminExpandedOrderId, setAdminExpandedOrderId] = useState(null);
 
+  // PWA & Timer States
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [isPwaInstalled, setIsPwaInstalled] = useState(false);
+  const [isPwaSupported, setIsPwaSupported] = useState(true);
+  const [currentDraftOrderCreatedAt, setCurrentDraftOrderCreatedAt] = useState(null);
+
+  // Admin Withdrawal Section States
+  const [withdrawalFilter, setWithdrawalFilter] = useState('all');
+  const [withdrawalDateRange, setWithdrawalDateRange] = useState('all');
+  const [withdrawalSearchQuery, setWithdrawalSearchQuery] = useState('');
+  const [withdrawalSort, setWithdrawalSort] = useState('date-desc');
+  const [withdrawalPage, setWithdrawalPage] = useState(1);
+  const [withdrawalStartDate, setWithdrawalStartDate] = useState('');
+  const [withdrawalEndDate, setWithdrawalEndDate] = useState('');
+
   // Admin New Scheme Form
   const [newSchemeName, setNewSchemeName] = useState('');
   const [newSchemePrice, setNewSchemePrice] = useState('');
@@ -164,6 +179,9 @@ export default function FastPayApp() {
     fetchSession();
     generateCaptcha();
 
+    let handleBeforeInstallPrompt;
+    let timer;
+
     if (typeof window !== 'undefined') {
       const ua = navigator.userAgent || navigator.vendor || window.opera;
       const isAndroid = /android/i.test(ua);
@@ -174,6 +192,24 @@ export default function FastPayApp() {
         setIsDeviceBlocked(true);
       }
 
+      // Check if already running as standalone PWA
+      const checkInstalled = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+      setIsPwaInstalled(!!checkInstalled);
+
+      handleBeforeInstallPrompt = (e) => {
+        e.preventDefault();
+        setDeferredPrompt(e);
+        setIsPwaSupported(true);
+      };
+
+      window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+      timer = setTimeout(() => {
+        if (!checkInstalled && !isIos && !('BeforeInstallPromptEvent' in window)) {
+          setIsPwaSupported(false);
+        }
+      }, 3000);
+
       // Register PWA service worker
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('/sw.js')
@@ -181,6 +217,17 @@ export default function FastPayApp() {
           .catch((err) => console.error('Service Worker registration failed:', err));
       }
     }
+
+    return () => {
+      if (typeof window !== 'undefined') {
+        if (handleBeforeInstallPrompt) {
+          window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+        }
+        if (timer) {
+          clearTimeout(timer);
+        }
+      }
+    };
   }, []);
 
   // Regenerate captcha when switching login/registration forms
@@ -360,23 +407,31 @@ export default function FastPayApp() {
 
   const paymentIntervalRef = useRef(null);
   useEffect(() => {
-    if (activeOrderDetails && paymentStep === 2) {
-      setPaymentTimer(900); // 15 mins
+    if (activeOrderDetails && paymentStep === 2 && currentDraftOrderCreatedAt) {
+      const calculateRemaining = () => {
+        const elapsed = Math.floor((Date.now() - new Date(currentDraftOrderCreatedAt).getTime()) / 1000);
+        return Math.max(0, 900 - elapsed);
+      };
+
+      setPaymentTimer(calculateRemaining());
+
       paymentIntervalRef.current = setInterval(() => {
-        setPaymentTimer((prev) => {
-          if (prev <= 1) {
+        setPaymentTimer(() => {
+          const rem = calculateRemaining();
+          if (rem <= 0) {
             clearInterval(paymentIntervalRef.current);
             handleUpdateDraftStatus('failed');
+            handleCloseModal();
             return 0;
           }
-          return prev - 1;
+          return rem;
         });
       }, 1000);
     } else {
       clearInterval(paymentIntervalRef.current);
     }
     return () => clearInterval(paymentIntervalRef.current);
-  }, [activeOrderDetails, paymentStep, currentDraftOrderId]);
+  }, [activeOrderDetails, paymentStep, currentDraftOrderId, currentDraftOrderCreatedAt]);
 
   // 2. Fetch Schemes, Orders, Transactions, & Team
   const fetchSchemes = async () => {
@@ -754,6 +809,22 @@ export default function FastPayApp() {
     }
   };
 
+  const handleInstallPwa = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      console.log(`User choice outcome: ${outcome}`);
+      setDeferredPrompt(null);
+    } else {
+      const isIos = typeof window !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+      if (isIos) {
+        alert("To install FastPay on your iOS device: Open Safari, tap the Share icon, and select 'Add to Home Screen'.");
+      } else {
+        alert("Your browser does not support automatic app installation. Please use your browser's menu to install FastPay.");
+      }
+    }
+  };
+
   const handleInitiateSchemePurchase = async (scheme) => {
     if (user && (!user.isTelegramChannelJoined || !user.isTelegramGroupJoined)) {
       setShowTelegramGate(true);
@@ -773,6 +844,8 @@ export default function FastPayApp() {
       if (data.success) {
         setCurrentDraftOrderId(data.orderId);
         setActiveOrderBankDetails(data.depositDetails);
+        setCurrentDraftOrderCreatedAt(data.createdAt);
+        fetchOrders();
       }
     } catch (e) {
       console.error('Error initiating draft order:', e);
@@ -800,6 +873,23 @@ export default function FastPayApp() {
     setPaymentUtr('');
     setPaymentScreenshot(null);
     setCurrentDraftOrderId(null);
+  };
+
+  const handleCancelPurchase = async () => {
+    if (currentDraftOrderId) {
+      try {
+        await fetch('/api/orders', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orderId: currentDraftOrderId, status: 'cancelled' }),
+        });
+        fetchOrders();
+        fetchTransactions();
+      } catch (e) {
+        console.error('Error cancelling purchase:', e);
+      }
+    }
+    handleCloseModal();
   };
 
   const handleBuyOrder = async (schemeId, utr, screenshot) => {
@@ -848,6 +938,7 @@ export default function FastPayApp() {
         return;
       }
       setCurrentDraftOrderId(order.id);
+      setCurrentDraftOrderCreatedAt(order.created_at);
       setActiveOrderDetails(scheme);
       setActiveOrderBankDetails({
         accountNumber: order.virtual_account || "912010087654321",
@@ -1720,6 +1811,32 @@ export default function FastPayApp() {
             )}
           </div>
 
+          {/* PWA Install App Card */}
+          {!isPwaInstalled && (
+            <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '10px', border: '1px solid var(--accent-primary)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '1.25rem' }}>📱</span>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0 }} className="gradient-text">Install the App</h3>
+              </div>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: '1.4', margin: 0 }}>
+                Install FastPay to your device home screen for a native, fast, and full-screen mobile app experience.
+              </p>
+              {isPwaSupported ? (
+                <button
+                  onClick={handleInstallPwa}
+                  className="gradient-btn"
+                  style={{ width: '100%', padding: '12px', borderRadius: '8px', fontSize: '0.9rem', fontWeight: 700 }}
+                >
+                  Install Now
+                </button>
+              ) : (
+                <div style={{ padding: '10px', background: 'rgba(255, 118, 117, 0.1)', border: '1px solid rgba(255, 118, 117, 0.2)', borderRadius: '8px', color: 'var(--error)', fontSize: '0.85rem', textAlign: 'center' }}>
+                  Your browser does not support app installation. Please continue using the website.
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Download App Card */}
           <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '10px', border: '1px solid var(--accent-secondary)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -2322,7 +2439,8 @@ export default function FastPayApp() {
                 { id: 'overview', label: 'Platform Overview' },
                 { id: 'users', label: 'User Management' },
                 { id: 'transactions', label: 'Transaction Resolving' },
-                { id: 'schemes', label: 'Investment Schemes' }
+                { id: 'schemes', label: 'Investment Schemes' },
+                { id: 'withdrawals', label: 'Withdrawal Manager' }
               ].map((tab) => (
                 <button
                   key={tab.id}
@@ -3935,6 +4053,331 @@ export default function FastPayApp() {
             </div>
           )}
 
+          {/* Section: Withdrawal Manager Dashboard */}
+          {adminActiveSubTab === 'withdrawals' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)' }}>Platform Withdrawal Manager</h3>
+
+              {/* Summary Cards */}
+              {(() => {
+                const wtxs = adminTransactions.filter(t => t.type === 'withdrawal');
+                const totalAmount = wtxs.filter(t => t.status === 'completed').reduce((sum, t) => sum + Math.abs(t.amount), 0);
+                const totalRequests = wtxs.length;
+                const pendingCount = wtxs.filter(t => t.status === 'pending').reduce((sum, t) => sum + Math.abs(t.amount), 0);
+                const approvedCount = wtxs.filter(t => t.status === 'completed').reduce((sum, t) => sum + Math.abs(t.amount), 0);
+                const rejectedCount = wtxs.filter(t => t.status === 'failed').reduce((sum, t) => sum + Math.abs(t.amount), 0);
+
+                return (
+                  <>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                      <div className="glass-panel" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', padding: '16px', borderRadius: '6px' }}>
+                        <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>Total Withdrawal Volume</span>
+                        <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--success)', fontFamily: 'monospace', marginTop: '6px' }}>
+                          ₹{totalAmount.toFixed(2)}
+                        </div>
+                      </div>
+                      <div className="glass-panel" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', padding: '16px', borderRadius: '6px' }}>
+                        <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>Total Requests</span>
+                        <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'monospace', marginTop: '6px' }}>
+                          {totalRequests}
+                        </div>
+                      </div>
+                      <div className="glass-panel" style={{ background: 'var(--bg-secondary)', border: '1px solid rgba(253, 203, 110, 0.4)', padding: '16px', borderRadius: '6px' }}>
+                        <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>Pending Requests Sum</span>
+                        <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--gold)', fontFamily: 'monospace', marginTop: '6px' }}>
+                          ₹{pendingCount.toFixed(2)}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <div className="glass-panel" style={{ background: 'var(--bg-secondary)', border: '1px solid rgba(0, 184, 148, 0.4)', padding: '16px', borderRadius: '6px' }}>
+                        <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>Approved Requests Sum</span>
+                        <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--success)', fontFamily: 'monospace', marginTop: '6px' }}>
+                          ₹{approvedCount.toFixed(2)}
+                        </div>
+                      </div>
+                      <div className="glass-panel" style={{ background: 'var(--bg-secondary)', border: '1px solid rgba(255, 118, 117, 0.4)', padding: '16px', borderRadius: '6px' }}>
+                        <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>Rejected Requests Sum</span>
+                        <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--error)', fontFamily: 'monospace', marginTop: '6px' }}>
+                          ₹{rejectedCount.toFixed(2)}
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
+
+              {/* Filters & Search UI */}
+              <div className="glass-panel" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr 1fr', gap: '10px' }}>
+                  <div>
+                    <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>SEARCH USER</label>
+                    <input
+                      type="text"
+                      placeholder="Username, ID, or Phone..."
+                      value={withdrawalSearchQuery}
+                      onChange={(e) => { setWithdrawalSearchQuery(e.target.value); setWithdrawalPage(1); }}
+                      className="form-input"
+                      style={{ fontSize: '0.8rem', padding: '8px' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>STATUS FILTER</label>
+                    <select
+                      value={withdrawalFilter}
+                      onChange={(e) => { setWithdrawalFilter(e.target.value); setWithdrawalPage(1); }}
+                      className="form-input"
+                      style={{ fontSize: '0.8rem', padding: '8px', background: 'var(--bg-secondary)', cursor: 'pointer' }}
+                    >
+                      <option value="all">📁 All Statuses</option>
+                      <option value="pending">⏳ Pending Resolve</option>
+                      <option value="approved">✅ Approved</option>
+                      <option value="rejected">❌ Rejected</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>DATE FILTER</label>
+                    <select
+                      value={withdrawalDateRange}
+                      onChange={(e) => { setWithdrawalDateRange(e.target.value); setWithdrawalPage(1); }}
+                      className="form-input"
+                      style={{ fontSize: '0.8rem', padding: '8px', background: 'var(--bg-secondary)', cursor: 'pointer' }}
+                    >
+                      <option value="all">📅 Lifetime Date</option>
+                      <option value="today">Today</option>
+                      <option value="week">This Week</option>
+                      <option value="month">This Month</option>
+                      <option value="custom">Custom Date Range</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>SORT ORDER</label>
+                    <select
+                      value={withdrawalSort}
+                      onChange={(e) => { setWithdrawalSort(e.target.value); setWithdrawalPage(1); }}
+                      className="form-input"
+                      style={{ fontSize: '0.8rem', padding: '8px', background: 'var(--bg-secondary)', cursor: 'pointer' }}
+                    >
+                      <option value="date-desc">Newest Request</option>
+                      <option value="date-asc">Oldest Request</option>
+                      <option value="amount-desc">Highest Amount</option>
+                      <option value="amount-asc">Lowest Amount</option>
+                    </select>
+                  </div>
+                </div>
+
+                {withdrawalDateRange === 'custom' && (
+                  <div className="animate-fade-in" style={{ display: 'flex', gap: '10px', borderTop: '1px solid var(--glass-border)', paddingTop: '10px' }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>START DATE</label>
+                      <input
+                        type="date"
+                        value={withdrawalStartDate}
+                        onChange={(e) => { setWithdrawalStartDate(e.target.value); setWithdrawalPage(1); }}
+                        className="form-input"
+                        style={{ fontSize: '0.8rem', padding: '8px' }}
+                      />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>END DATE</label>
+                      <input
+                        type="date"
+                        value={withdrawalEndDate}
+                        onChange={(e) => { setWithdrawalEndDate(e.target.value); setWithdrawalPage(1); }}
+                        className="form-input"
+                        style={{ fontSize: '0.8rem', padding: '8px' }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Withdrawals List Rendering */}
+              {(() => {
+                let list = adminTransactions.filter(t => t.type === 'withdrawal');
+
+                // Search query filter
+                if (withdrawalSearchQuery.trim()) {
+                  const q = withdrawalSearchQuery.toLowerCase().trim();
+                  list = list.filter(t => {
+                    const uName = t.user_name ? t.user_name.toLowerCase() : '';
+                    const uId = t.user_id ? t.user_id.toLowerCase() : '';
+                    const uPhone = t.user_phone ? t.user_phone.toLowerCase() : '';
+                    return uName.includes(q) || uId.includes(q) || uPhone.includes(q);
+                  });
+                }
+
+                // Status Filter
+                if (withdrawalFilter !== 'all') {
+                  const targetStatus = withdrawalFilter === 'approved' ? 'completed' : withdrawalFilter === 'rejected' ? 'failed' : 'pending';
+                  list = list.filter(t => t.status === targetStatus);
+                }
+
+                // Date Filter
+                if (withdrawalDateRange !== 'all') {
+                  const now = new Date();
+                  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+
+                  if (withdrawalDateRange === 'today') {
+                    list = list.filter(t => new Date(t.created_at).getTime() >= startOfDay);
+                  } else if (withdrawalDateRange === 'week') {
+                    const oneWeekAgo = now.getTime() - 7 * 24 * 60 * 60 * 1000;
+                    list = list.filter(t => new Date(t.created_at).getTime() >= oneWeekAgo);
+                  } else if (withdrawalDateRange === 'month') {
+                    const oneMonthAgo = now.getTime() - 30 * 24 * 60 * 60 * 1000;
+                    list = list.filter(t => new Date(t.created_at).getTime() >= oneMonthAgo);
+                  } else if (withdrawalDateRange === 'custom') {
+                    if (withdrawalStartDate) {
+                      const start = new Date(withdrawalStartDate).getTime();
+                      list = list.filter(t => new Date(t.created_at).getTime() >= start);
+                    }
+                    if (withdrawalEndDate) {
+                      const end = new Date(withdrawalEndDate).getTime() + 24 * 60 * 60 * 1000; // end of that day
+                      list = list.filter(t => new Date(t.created_at).getTime() <= end);
+                    }
+                  }
+                }
+
+                // Sorting
+                list.sort((a, b) => {
+                  if (withdrawalSort === 'date-desc') return new Date(b.created_at) - new Date(a.created_at);
+                  if (withdrawalSort === 'date-asc') return new Date(a.created_at) - new Date(b.created_at);
+                  if (withdrawalSort === 'amount-desc') return Math.abs(b.amount) - Math.abs(a.amount);
+                  if (withdrawalSort === 'amount-asc') return Math.abs(a.amount) - Math.abs(b.amount);
+                  return 0;
+                });
+
+                // Pagination Calculation
+                const itemsPerPage = 10;
+                const totalPages = Math.ceil(list.length / itemsPerPage) || 1;
+                const paginated = list.slice((withdrawalPage - 1) * itemsPerPage, withdrawalPage * itemsPerPage);
+
+                if (list.length === 0) {
+                  return (
+                    <div className="glass-panel" style={{ padding: '30px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                      No withdrawal records matched the active filters.
+                    </div>
+                  );
+                }
+
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {paginated.map((item) => {
+                        const user = adminUsers.find(u => u.id === item.user_id);
+                        let statusColor = 'var(--text-secondary)';
+                        let statusBg = 'rgba(255, 255, 255, 0.05)';
+                        let statusText = 'Pending';
+                        if (item.status === 'completed') {
+                          statusColor = 'var(--success)';
+                          statusBg = 'rgba(0, 184, 148, 0.1)';
+                          statusText = 'Approved';
+                        } else if (item.status === 'failed') {
+                          statusColor = 'var(--error)';
+                          statusBg = 'rgba(255, 118, 117, 0.1)';
+                          statusText = 'Rejected';
+                        }
+
+                        return (
+                          <div
+                            key={item.id}
+                            className="glass-panel"
+                            style={{
+                              padding: '16px',
+                              borderLeft: `3px solid ${statusColor}`,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '10px'
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div>
+                                <h4 style={{ fontWeight: 600, margin: 0, fontSize: '0.9rem' }}>
+                                  User: {item.user_name}
+                                </h4>
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                                  Phone: {item.user_phone} | ID: {item.user_id}
+                                </span>
+                              </div>
+                              <div style={{ textAlign: 'right' }}>
+                                <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--error)' }}>
+                                  -₹{Math.abs(item.amount).toFixed(2)}
+                                </div>
+                                <span style={{ fontSize: '0.65rem', background: statusBg, color: statusColor, padding: '2px 8px', borderRadius: '4px', textTransform: 'capitalize', fontWeight: 600 }}>
+                                  {statusText}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Settlement Bank/UPI Details */}
+                            <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', padding: '10px', borderRadius: '6px', fontSize: '0.75rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                              <div>Bank/UPI Beneficiary: <strong>{user?.bankDetails?.accountName || 'Unknown'}</strong></div>
+                              <div>UPI ID: <strong style={{ color: 'var(--accent-secondary)' }}>{user?.bankDetails?.upiId || 'Not Linked'}</strong></div>
+                              <div>Account Number: <strong>{user?.bankDetails?.accountNumber || 'Not Linked'}</strong></div>
+                              <div>IFSC Code: <strong>{user?.bankDetails?.ifsc || 'Not Linked'}</strong></div>
+                            </div>
+
+                            {/* Timeline */}
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--glass-border)', paddingTop: '8px' }}>
+                              <span>Requested: {new Date(item.created_at).toLocaleString()}</span>
+                              {item.status !== 'pending' && (
+                                <span>Resolved: {new Date(item.updated_at || item.created_at).toLocaleString()}</span>
+                              )}
+                            </div>
+
+                            {/* Action Resolve Buttons if Pending */}
+                            {item.status === 'pending' && (
+                              <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                                <button
+                                  onClick={() => handleAdminAction('approveTransaction', { transactionId: item.id })}
+                                  className="gradient-btn"
+                                  style={{ flex: 1, padding: '8px', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 700 }}
+                                >
+                                  Approve Request
+                                </button>
+                                <button
+                                  onClick={() => handleAdminAction('rejectTransaction', { transactionId: item.id })}
+                                  style={{ flex: 1, padding: '8px', borderRadius: '6px', background: 'none', border: '1px solid var(--error)', color: 'var(--error)', fontSize: '0.8rem', cursor: 'pointer', fontWeight: 700 }}
+                                >
+                                  Reject Request
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Pagination */}
+                    {totalPages > 1 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px', padding: '0 4px' }}>
+                        <button
+                          disabled={withdrawalPage === 1}
+                          onClick={() => setWithdrawalPage(prev => Math.max(1, prev - 1))}
+                          className="form-input"
+                          style={{ width: 'auto', padding: '6px 12px', fontSize: '0.75rem', opacity: withdrawalPage === 1 ? 0.5 : 1, cursor: withdrawalPage === 1 ? 'default' : 'pointer' }}
+                        >
+                          ◀ Previous
+                        </button>
+                        <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                          Page {withdrawalPage} of {totalPages} ({list.length} requests)
+                        </span>
+                        <button
+                          disabled={withdrawalPage === totalPages}
+                          onClick={() => setWithdrawalPage(prev => Math.min(totalPages, prev + 1))}
+                          className="form-input"
+                          style={{ width: 'auto', padding: '6px 12px', fontSize: '0.75rem', opacity: withdrawalPage === totalPages ? 0.5 : 1, cursor: withdrawalPage === totalPages ? 'default' : 'pointer' }}
+                        >
+                          Next ▶
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
         </div>
       )}
       {/* --- TAB: TASKS --- */}
@@ -4312,7 +4755,7 @@ export default function FastPayApp() {
                     Go Back
                   </button>
                   <button
-                    onClick={handleCloseModal}
+                    onClick={handleCancelPurchase}
                     style={{ background: 'none', border: 'none', color: 'var(--error)', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
                   >
                     Cancel Purchase

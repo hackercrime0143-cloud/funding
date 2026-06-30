@@ -131,7 +131,8 @@ export async function GET(request) {
       virtual_account_id: t.virtual_account_id ? t.virtual_account_id.toString() : null,
       utr: t.utr || null,
       screenshot: t.screenshot || null,
-      created_at: t.created_at
+      created_at: t.created_at,
+      updated_at: t.updated_at || t.created_at
     }));
 
     // 3. Get all orders with details

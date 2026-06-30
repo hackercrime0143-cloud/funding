@@ -119,6 +119,7 @@ export async function POST(request) {
         return NextResponse.json({
           success: true,
           orderId: existingPending._id.toString(),
+          createdAt: existingPending.created_at,
           depositDetails: matchedVa ? {
             accountNumber: matchedVa.account_number,
             bankName: matchedVa.bank_name,
@@ -211,6 +212,7 @@ export async function POST(request) {
       success: true,
       message: isDraft ? 'Draft order created.' : `Purchase request submitted for verification with UTR: ${utr.trim()}.`,
       orderId: newOrder._id.toString(),
+      createdAt: newOrder.created_at,
       depositDetails: virtualAcc ? {
         accountNumber: virtualAcc.account_number,
         bankName: virtualAcc.bank_name,
