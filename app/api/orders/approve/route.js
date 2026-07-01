@@ -49,6 +49,20 @@ export async function POST(request) {
         );
       }
 
+      // Sync rejection state to the associated deposit transaction
+      await Transaction.updateOne(
+        { order_id: order._id },
+        { 
+          $set: { 
+            status: 'failed', 
+            rejection_reason: rejectionReason || '',
+            resolved_at: new Date(),
+            approved_by_admin_id: currentUser._id,
+            approved_by_admin_username: currentUser.username
+          } 
+        }
+      );
+
       return NextResponse.json({
         success: true,
         message: `Order ID ${orderId} has been rejected.`
@@ -98,6 +112,19 @@ export async function POST(request) {
         { $set: { is_locked: false, locked_until: null, locked_by_user_id: null } }
       );
     }
+
+    // Sync approval state to the associated deposit transaction
+    await Transaction.updateOne(
+      { order_id: order._id },
+      { 
+        $set: { 
+          status: 'completed',
+          resolved_at: new Date(),
+          approved_by_admin_id: currentUser._id,
+          approved_by_admin_username: currentUser.username
+        } 
+      }
+    );
 
 
 

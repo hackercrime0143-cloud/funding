@@ -129,13 +129,18 @@ export async function POST(request) {
       virtualAcc.locked_by_user_id = session.id;
       await virtualAcc.save();
 
-      // Add a pending deposit transaction
+      // Add a pending deposit transaction with snapshots
       const newTx = await Transaction.create({
         user_id: session.id,
         type: 'deposit',
         amount: reqAmount,
         status: 'pending',
-        virtual_account_id: virtualAcc._id
+        virtual_account_id: virtualAcc._id,
+        deposit_bank_name: virtualAcc.bank_name,
+        deposit_account_number: virtualAcc.account_number,
+        deposit_beneficiary_name: virtualAcc.beneficiary_name,
+        deposit_upi_id: virtualAcc.upi_id || "fastpay@upi",
+        deposit_qr_code: virtualAcc.qr_code || ""
       });
 
       return NextResponse.json({
@@ -183,35 +188,39 @@ export async function POST(request) {
         return NextResponse.json({ error: 'Insufficient balance for this withdrawal.' }, { status: 400 });
       }
 
+      const balanceBefore = user.wallet_balance;
+      // Deduct balance immediately upon request submission
+      user.wallet_balance -= reqAmount;
+      await user.save();
+
+      // Parse bank name from IFSC
       const ifscPrefix = bankLinked.ifsc.substring(0, 4).toUpperCase();
-      const bankMapping = {
+      const friendlyBankMap = {
         'SBIN': 'State Bank of India',
         'HDFC': 'HDFC Bank',
         'ICIC': 'ICICI Bank',
         'UTIB': 'Axis Bank',
+        'KKBK': 'Kotak Mahindra Bank',
         'BARB': 'Bank of Baroda',
         'PUNB': 'Punjab National Bank',
-        'KKBK': 'Kotak Mahindra Bank',
-        'IBKL': 'IDBI Bank',
         'YESB': 'Yes Bank',
-        'BKID': 'Bank of India',
+        'INDB': 'IndusInd Bank',
         'CNRB': 'Canara Bank',
+        'IBKL': 'IDBI Bank',
+        'IDFB': 'IDFC First Bank',
+        'IOBA': 'Indian Overseas Bank',
         'UBIN': 'Union Bank of India'
       };
-      const bankName = bankMapping[ifscPrefix] || `${ifscPrefix} Bank`;
+      const bankName = friendlyBankMap[ifscPrefix] || `${ifscPrefix} Bank`;
 
-      const balanceBefore = user.wallet_balance;
-
-      // Deduct balance
-      user.wallet_balance -= reqAmount;
-      await user.save();
-
-      // Add pending withdrawal record
+      // Add pending withdrawal request with snapshotted user data
       await Transaction.create({
         user_id: session.id,
         type: 'withdrawal',
         amount: -reqAmount,
         status: 'pending',
+        utr: null,
+        screenshot: null,
         user_username: user.username,
         user_phone: user.phone,
         withdrawal_bank_name: bankName,
@@ -275,6 +284,7 @@ export async function PATCH(request) {
 
     tx.utr = utr.trim();
     tx.screenshot = await saveBase64Image(screenshot);
+    tx.status = 'confirmation_pending';
     await tx.save();
 
     // Custom Deposit Scheme auto-creation:
@@ -293,24 +303,27 @@ export async function PATCH(request) {
         });
 
         // Create pending order associated with the transaction
-        await Order.create({
+        const newOrder = await Order.create({
           user_id: tx.user_id,
           scheme_id: customScheme._id,
           price: tx.amount,
           daily_income: tx.amount * 0.035,
           total_payout: tx.amount * (1 + 0.035 * 3),
           days_remaining: 3,
-          status: 'pending',
+          status: 'confirmation_pending',
           utr: utr.trim(),
-          screenshot: screenshot,
+          screenshot: tx.screenshot,
           virtual_account_id: tx.virtual_account_id
         });
+
+        tx.order_id = newOrder._id;
+        await tx.save();
       }
     }
 
-    return NextResponse.json({ success: true, message: 'Deposit payment proof submitted successfully!' });
+    return NextResponse.json({ success: true, message: 'Deposit proof submitted successfully!' });
   } catch (error) {
-    console.error('Transaction patch error:', error);
-    return NextResponse.json({ error: 'Failed to update transaction proof.' }, { status: 500 });
+    console.error('Submit deposit proof error:', error);
+    return NextResponse.json({ error: 'Server error submitting deposit proof.' }, { status: 500 });
   }
 }

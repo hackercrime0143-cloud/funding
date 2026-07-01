@@ -110,6 +110,29 @@ export default function FastPayApp() {
   const [adminUserSubView, setAdminUserSubView] = useState(null); // 'deposits', 'withdrawals', 'orders', 'commissions', null
   const [adminExpandedOrderId, setAdminExpandedOrderId] = useState(null);
 
+  // Pagination and stats states
+  const [userTotalPages, setUserTotalPages] = useState(1);
+  const [txPage, setTxPage] = useState(1);
+  const [txTotalPages, setTxTotalPages] = useState(1);
+  const [ordersPage, setOrdersPage] = useState(1);
+  const [ordersTotalPages, setOrdersTotalPages] = useState(1);
+
+  const [adminTotalUsersCount, setAdminTotalUsersCount] = useState(0);
+  const [adminTotalTransactionsCount, setAdminTotalTransactionsCount] = useState(0);
+  const [adminTotalOrdersCount, setAdminTotalOrdersCount] = useState(0);
+
+  const [adminStats, setAdminStats] = useState({
+    totalUsers: 0,
+    totalUserBalances: 0,
+    totalDeposits: 0,
+    pendingDepositsCount: 0,
+    pendingDepositsTotal: 0,
+    totalWithdrawals: 0,
+    pendingWithdrawalsCount: 0,
+    pendingWithdrawalsTotal: 0,
+    activeInvestments: 0
+  });
+
   // PWA & Timer States
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [isPwaInstalled, setIsPwaInstalled] = useState(false);
@@ -389,22 +412,94 @@ export default function FastPayApp() {
     }
   };
 
-  const fetchAdminData = async () => {
+  const fetchAdminStats = async () => {
+    try {
+      const res = await fetch('/api/admin/stats');
+      const data = await res.json();
+      if (data.success) {
+        setAdminStats(data.stats);
+      }
+    } catch (e) {
+      console.error('Error fetching admin stats:', e);
+    }
+  };
+
+  const fetchAdminUsers = async (page = 1, search = '') => {
     setAdminLoading(true);
+    try {
+      const res = await fetch(`/api/admin/users?page=${page}&limit=20&search=${encodeURIComponent(search)}`);
+      const data = await res.json();
+      if (data.success) {
+        setAdminUsers(data.users);
+        setUserPage(data.pagination.page);
+        setUserTotalPages(data.pagination.pages);
+        setAdminTotalUsersCount(data.pagination.total);
+      }
+    } catch (e) {
+      console.error('Error fetching admin users:', e);
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const fetchAdminTransactions = async (page = 1, filter = 'pending', search = '') => {
+    setAdminLoading(true);
+    try {
+      const res = await fetch(`/api/admin/transactions?page=${page}&limit=20&filter=${filter}&search=${encodeURIComponent(search)}`);
+      const data = await res.json();
+      if (data.success) {
+        setAdminTransactions(data.transactions);
+        setTxPage(data.pagination.page);
+        setTxTotalPages(data.pagination.pages);
+        setAdminTotalTransactionsCount(data.pagination.total);
+      }
+    } catch (e) {
+      console.error('Error fetching admin transactions:', e);
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const fetchAdminOrders = async (page = 1, status = '', search = '') => {
+    setAdminLoading(true);
+    try {
+      const res = await fetch(`/api/admin/orders?page=${page}&limit=20&status=${status}&search=${encodeURIComponent(search)}`);
+      const data = await res.json();
+      if (data.success) {
+        setAdminOrders(data.orders);
+        setOrdersPage(data.pagination.page);
+        setOrdersTotalPages(data.pagination.pages);
+        setAdminTotalOrdersCount(data.pagination.total);
+      }
+    } catch (e) {
+      console.error('Error fetching admin orders:', e);
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const fetchAdminData = async () => {
     try {
       const res = await fetch('/api/admin/data');
       const data = await res.json();
       if (data.success) {
-        setAdminUsers(data.users);
-        setAdminTransactions(data.transactions);
-        setAdminOrders(data.orders);
         setAdminSchemes(data.schemes);
         setAdminVirtualAccounts(data.virtualAccounts || []);
       }
     } catch (e) {
-      console.error('Error fetching admin data:', e);
-    } finally {
-      setAdminLoading(false);
+      console.error('Error in fetchAdminData wrapper:', e);
+    }
+
+    // Refresh stats
+    fetchAdminStats();
+
+    // Trigger slice refresh
+    if (adminActiveSubTab === 'users') {
+      fetchAdminUsers(userPage, userSearch);
+    } else if (adminActiveSubTab === 'transactions') {
+      fetchAdminTransactions(txPage, adminTxFilter, adminSearchQuery);
+    } else if (adminActiveSubTab === 'orders') {
+      fetchAdminOrders(ordersPage, adminOrderFilter, adminSearchQuery);
     }
   };
 
@@ -586,11 +681,99 @@ export default function FastPayApp() {
     }
   };
 
+  // URL Navigation State Persistence (Admin Panel)
+  useEffect(() => {
+    if (activeTab !== 'admin') return;
+    const params = new URLSearchParams();
+    params.set('tab', adminActiveSubTab);
+    params.set('view', adminView);
+    if (selectedAdminUserId) params.set('userId', selectedAdminUserId);
+    if (adminExpandedOrderId) params.set('orderId', adminExpandedOrderId);
+    if (adminSearchQuery) params.set('search', adminSearchQuery);
+    if (adminTxFilter) params.set('txFilter', adminTxFilter);
+    if (adminOrderFilter) params.set('orderFilter', adminOrderFilter);
+    params.set('usersPage', userPage.toString());
+    params.set('txPage', txPage.toString());
+    params.set('ordersPage', ordersPage.toString());
+
+    window.history.replaceState(null, '', `?${params.toString()}`);
+  }, [
+    activeTab,
+    adminActiveSubTab,
+    adminView,
+    selectedAdminUserId,
+    adminExpandedOrderId,
+    adminSearchQuery,
+    adminTxFilter,
+    adminOrderFilter,
+    userPage,
+    txPage,
+    ordersPage
+  ]);
+
+  // Load state from URL parameters on initial client mount
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab');
+    const view = params.get('view');
+    const userId = params.get('userId');
+    const orderId = params.get('orderId');
+    const search = params.get('search');
+    const txFilter = params.get('txFilter');
+    const orderFilter = params.get('orderFilter');
+    
+    const usersP = parseInt(params.get('usersPage')) || 1;
+    const txP = parseInt(params.get('txPage')) || 1;
+    const ordersP = parseInt(params.get('ordersPage')) || 1;
+
+    if (tab) setAdminActiveSubTab(tab);
+    if (view) setAdminView(view);
+    if (userId) {
+      setSelectedAdminUserId(userId);
+      fetchUserProfileDetails(userId);
+    }
+    if (orderId) {
+      setAdminExpandedOrderId(orderId);
+    }
+    if (search) setAdminSearchQuery(search);
+    if (txFilter) setAdminTxFilter(txFilter);
+    if (orderFilter) setAdminOrderFilter(orderFilter);
+
+    setUserPage(usersP);
+    setTxPage(txP);
+    setOrdersPage(ordersP);
+  }, []);
+
+  // Fetch dashboard stats and scheme/virtual accounts meta on admin page active
   useEffect(() => {
     if (activeTab === 'admin') {
+      fetchAdminStats();
       fetchAdminData();
     }
   }, [activeTab]);
+
+  // Lazy load list page data slices on tab, filters, search, or pagination changes
+  useEffect(() => {
+    if (activeTab === 'admin') {
+      if (adminActiveSubTab === 'users') {
+        fetchAdminUsers(userPage, userSearch);
+      } else if (adminActiveSubTab === 'transactions') {
+        fetchAdminTransactions(txPage, adminTxFilter, adminSearchQuery);
+      } else if (adminActiveSubTab === 'orders') {
+        fetchAdminOrders(ordersPage, adminOrderFilter, adminSearchQuery);
+      }
+    }
+  }, [
+    activeTab,
+    adminActiveSubTab,
+    userPage,
+    txPage,
+    ordersPage,
+    adminTxFilter,
+    adminOrderFilter,
+    adminSearchQuery,
+    userSearch
+  ]);
 
   const formatTimerValue = (seconds) => {
     const mins = Math.floor(seconds / 60);
@@ -3586,7 +3769,7 @@ export default function FastPayApp() {
                 >
                   <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>REGISTERED ACCOUNTS</span>
                   <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'monospace', margin: '8px 0' }}>
-                    {adminUsers.length}
+                    {adminStats.totalUsers}
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
                     <span>Target Clients</span>
@@ -3601,7 +3784,7 @@ export default function FastPayApp() {
                 >
                   <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>COMBINED USER BALANCES</span>
                   <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'monospace', margin: '8px 0' }}>
-                    ₹{adminUsers.reduce((sum, u) => sum + u.wallet_balance, 0).toFixed(2)}
+                    ₹{adminStats.totalUserBalances.toFixed(2)}
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
                     <span>Total Liabilities</span>
@@ -3616,7 +3799,7 @@ export default function FastPayApp() {
                 >
                   <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>ACTIVE INVESTMENT VALUE</span>
                   <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'monospace', margin: '8px 0' }}>
-                    ₹{adminOrders.reduce((sum, o) => sum + (o.status === 'active' && o.days_remaining > 0 ? o.price : 0), 0).toFixed(2)}
+                    ₹{adminStats.activeInvestments.toFixed(2)}
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
                     <span>Locked In Schemes</span>
@@ -3633,22 +3816,22 @@ export default function FastPayApp() {
                 <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--success)', padding: '20px', borderRadius: '6px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
                   <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>COMPLETED DEPOSITS</span>
                   <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--success)', fontFamily: 'monospace', margin: '6px 0' }}>
-                    ₹{adminTransactions.reduce((sum, t) => sum + (t.type === 'deposit' && t.status === 'completed' ? t.amount : 0), 0).toFixed(2)}
+                    ₹{adminStats.totalDeposits.toFixed(2)}
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
                     <span>Pending Deposits</span>
-                    <span>{adminTransactions.filter(t => t.type === 'deposit' && t.status === 'pending').length} reqs (₹{adminTransactions.filter(t => t.type === 'deposit' && t.status === 'pending').reduce((sum, t) => sum + t.amount, 0).toFixed(0)})</span>
+                    <span>{adminStats.pendingDepositsCount} reqs (₹{adminStats.pendingDepositsTotal.toFixed(0)})</span>
                   </div>
                 </div>
 
                 <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--error)', padding: '20px', borderRadius: '6px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
                   <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>SETTLED WITHDRAWALS</span>
                   <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--error)', fontFamily: 'monospace', margin: '6px 0' }}>
-                    ₹{Math.abs(adminTransactions.reduce((sum, t) => sum + (t.type === 'withdrawal' && t.status === 'completed' ? t.amount : 0), 0)).toFixed(2)}
+                    ₹{adminStats.totalWithdrawals.toFixed(2)}
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
                     <span>Pending Cashouts</span>
-                    <span>{adminTransactions.filter(t => t.type === 'withdrawal' && t.status === 'pending').length} reqs (₹{Math.abs(adminTransactions.filter(t => t.type === 'withdrawal' && t.status === 'pending').reduce((sum, t) => sum + t.amount, 0)).toFixed(0)})</span>
+                    <span>{adminStats.pendingWithdrawalsCount} reqs (₹{adminStats.pendingWithdrawalsTotal.toFixed(0)})</span>
                   </div>
                 </div>
               </div>
@@ -3687,17 +3870,17 @@ export default function FastPayApp() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)' }}>Manage Deposits & Withdrawals</h3>
 
-              {/* Sub-Filters Selector */}
+               {/* Sub-Filters Selector */}
               <div style={{ display: 'flex', gap: '6px', marginBottom: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
                 {[
                   { id: 'pending', label: 'Pending Resolve' },
                   { id: 'withdrawals', label: 'Withdrawal Requests' },
-                  { id: 'deposits', label: 'Failed Orders' },
+                  { id: 'deposits', label: 'Deposits Log' },
                   { id: 'cancelled', label: 'Cancelled Log' }
                 ].map(sub => (
                   <button
                     key={sub.id}
-                    onClick={() => setAdminTxFilter(sub.id)}
+                    onClick={() => { setAdminTxFilter(sub.id); setTxPage(1); }}
                     style={{
                       padding: '6px 12px',
                       borderRadius: '4px',
@@ -3721,7 +3904,7 @@ export default function FastPayApp() {
                   type="text"
                   placeholder="🔍 Search by Support ID, Username, or Phone..."
                   value={adminSearchQuery}
-                  onChange={(e) => setAdminSearchQuery(e.target.value)}
+                  onChange={(e) => { setAdminSearchQuery(e.target.value); setTxPage(1); }}
                   style={{
                     width: '100%',
                     padding: '10px 14px',
@@ -3735,28 +3918,7 @@ export default function FastPayApp() {
               </div>
 
               {(() => {
-                let filtered = [];
-                if (adminTxFilter === 'pending') {
-                  filtered = adminTransactions.filter(t => t.status === 'pending');
-                } else if (adminTxFilter === 'withdrawals') {
-                  filtered = adminTransactions.filter(t => t.type === 'withdrawal');
-                } else if (adminTxFilter === 'deposits') {
-                  // This is Failed Orders
-                  filtered = adminOrders.filter(o => o.status === 'failed');
-                } else if (adminTxFilter === 'cancelled') {
-                  // This is Cancelled/Rejected Orders
-                  filtered = adminOrders.filter(o => o.status === 'cancelled' || o.status === 'rejected');
-                }
-
-                if (adminSearchQuery.trim() !== '') {
-                  const query = adminSearchQuery.toLowerCase().trim();
-                  filtered = filtered.filter(item => {
-                    const supportId = (item.user_support_id || '').toLowerCase();
-                    const name = (item.user_name || '').toLowerCase();
-                    const phone = (item.user_phone || '').toLowerCase();
-                    return supportId.includes(query) || name.includes(query) || phone.includes(query);
-                  });
-                }
+                let filtered = adminTransactions;
 
                 if (filtered.length === 0) {
                   return (
@@ -3918,7 +4080,7 @@ export default function FastPayApp() {
                                 </div>
                               )}
 
-                              {item.status === 'pending' && (
+                              {(item.status === 'pending' || item.status === 'confirmation_pending') && (
                                 <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
                                   <button
                                     onClick={() => handleAdminAction('approveTransaction', { transactionId: item.id })}
@@ -3945,6 +4107,29 @@ export default function FastPayApp() {
                         </div>
                       );
                     })}
+
+                    {/* Pagination Controls */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--glass-border)', paddingTop: '10px', fontSize: '0.8rem', marginTop: '10px' }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>Page {txPage} of {txTotalPages} ({adminTotalTransactionsCount} total records)</span>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button
+                          disabled={txPage === 1}
+                          onClick={() => setTxPage(prev => Math.max(1, prev - 1))}
+                          className="form-input"
+                          style={{ width: 'auto', padding: '4px 10px', background: txPage === 1 ? 'transparent' : 'var(--bg-secondary)', cursor: txPage === 1 ? 'default' : 'pointer', opacity: txPage === 1 ? 0.4 : 1 }}
+                        >
+                          Prev
+                        </button>
+                        <button
+                          disabled={txPage === txTotalPages}
+                          onClick={() => setTxPage(prev => Math.min(txTotalPages, prev + 1))}
+                          className="form-input"
+                          style={{ width: 'auto', padding: '4px 10px', background: txPage === txTotalPages ? 'transparent' : 'var(--bg-secondary)', cursor: txPage === txTotalPages ? 'default' : 'pointer', opacity: txPage === txTotalPages ? 0.4 : 1 }}
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 );
               })()}
@@ -3965,7 +4150,7 @@ export default function FastPayApp() {
                 ].map(sub => (
                   <button
                     key={sub.id}
-                    onClick={() => setAdminOrderFilter(sub.id)}
+                    onClick={() => { setAdminOrderFilter(sub.id); setOrdersPage(1); }}
                     style={{
                       padding: '6px 12px',
                       borderRadius: '6px',
@@ -3984,14 +4169,7 @@ export default function FastPayApp() {
               </div>
 
               {(() => {
-                let filtered = [];
-                if (adminOrderFilter === 'pending') {
-                  filtered = adminOrders.filter(o => o.status === 'confirmation_pending');
-                } else if (adminOrderFilter === 'active') {
-                  filtered = adminOrders.filter(o => o.status === 'active');
-                } else if (adminOrderFilter === 'cancelled') {
-                  filtered = adminOrders.filter(o => o.status === 'rejected' || o.status === 'cancelled');
-                }
+                let filtered = adminOrders;
 
                 if (filtered.length === 0) {
                   return (

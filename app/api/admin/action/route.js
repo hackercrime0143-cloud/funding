@@ -90,7 +90,7 @@ export async function POST(request) {
         return NextResponse.json({ error: 'Transaction not found.' }, { status: 404 });
       }
 
-      if (tx.status !== 'pending') {
+      if (tx.status !== 'pending' && tx.status !== 'confirmation_pending') {
         return NextResponse.json({ error: 'Transaction is already processed.' }, { status: 400 });
       }
 
@@ -98,6 +98,8 @@ export async function POST(request) {
       tx.status = 'completed';
       tx.updated_at = new Date();
       tx.resolved_at = new Date();
+      tx.approved_by_admin_id = adminCheck._id;
+      tx.approved_by_admin_username = adminCheck.username;
       await tx.save();
 
       // If it's a deposit, check if it was a Custom Scheme deposit or a normal deposit
@@ -139,7 +141,7 @@ export async function POST(request) {
         return NextResponse.json({ error: 'Transaction not found.' }, { status: 404 });
       }
 
-      if (tx.status !== 'pending') {
+      if (tx.status !== 'pending' && tx.status !== 'confirmation_pending') {
         return NextResponse.json({ error: 'Transaction is already processed.' }, { status: 400 });
       }
 
@@ -148,6 +150,8 @@ export async function POST(request) {
       tx.updated_at = new Date();
       tx.resolved_at = new Date();
       tx.rejection_reason = rejectionReason || '';
+      tx.approved_by_admin_id = adminCheck._id;
+      tx.approved_by_admin_username = adminCheck.username;
       await tx.save();
 
       // If it's a deposit & custom scheme range, reject the custom order

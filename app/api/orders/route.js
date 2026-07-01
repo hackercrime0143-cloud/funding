@@ -239,6 +239,25 @@ export async function POST(request) {
       virtual_account_id: virtualAcc._id
     });
 
+    // Create corresponding deposit transaction
+    await Transaction.create({
+      user_id: session.id,
+      order_id: newOrder._id,
+      type: 'deposit',
+      amount: scheme.price,
+      status: initialStatus,
+      virtual_account_id: virtualAcc._id,
+      utr: finalUtr,
+      screenshot: screenshotUrl,
+      deposit_bank_name: virtualAcc.bank_name,
+      deposit_account_number: virtualAcc.account_number,
+      deposit_beneficiary_name: virtualAcc.beneficiary_name,
+      deposit_upi_id: virtualAcc.upi_id || "fastpay@upi",
+      deposit_qr_code: virtualAcc.qr_code || "",
+      created_at: newOrder.created_at,
+      updated_at: newOrder.created_at
+    });
+
     const fallbackVa = {
       accountNumber: "912010087654321",
       bankName: "Axis Bank",
@@ -323,9 +342,23 @@ export async function PATCH(request) {
       order.screenshot = await saveBase64Image(screenshot);
     }
 
-
-
     await order.save();
+
+    // Sync changes to the associated deposit transaction
+    const updateFields = {};
+    if (status) {
+      updateFields.status = status;
+    }
+    if (utr) {
+      updateFields.utr = utr.trim();
+    }
+    if (screenshot) {
+      updateFields.screenshot = order.screenshot;
+    }
+    if (Object.keys(updateFields).length > 0) {
+      updateFields.updated_at = new Date();
+      await Transaction.updateOne({ order_id: order._id }, { $set: updateFields });
+    }
 
     return NextResponse.json({
       success: true,
