@@ -186,30 +186,16 @@ export async function POST(request) {
 
     let virtualAcc = null;
 
-    // 1. Check if the user already has a pending order with an assigned account.
-    // If so, reuse that account to keep the same details for this user's pending payments.
-    const existingOrder = await Order.findOne({
-      user_id: session.id,
-      status: 'pending',
-      virtual_account_id: { $ne: null }
-    }).populate('virtual_account_id');
-
-    if (existingOrder && existingOrder.virtual_account_id && existingOrder.virtual_account_id.is_enabled !== false) {
-      virtualAcc = existingOrder.virtual_account_id;
-    }
-
-    if (!virtualAcc) {
-      // 2. Find enabled accounts that are available (not locked, locked expired, locked by current user, or allow concurrent)
-      virtualAcc = await VirtualAccount.findOne({
-        is_enabled: { $ne: false },
-        $or: [
-          { is_locked: false },
-          { locked_until: { $lt: now } },
-          { locked_by_user_id: session.id },
-          { allow_concurrent: true }
-        ]
-      }).sort({ last_assigned_at: 1 }); // Round-robin: oldest assigned first
-    }
+    // 1. Find enabled accounts that are available (not locked, locked expired, locked by current user, or allow concurrent)
+    virtualAcc = await VirtualAccount.findOne({
+      is_enabled: { $ne: false },
+      $or: [
+        { is_locked: false },
+        { locked_until: { $lt: now } },
+        { locked_by_user_id: session.id },
+        { allow_concurrent: true }
+      ]
+    }).sort({ last_assigned_at: 1 }); // Round-robin: oldest assigned first
 
     // 3. If no available account, check if any enabled account allows concurrent usage
     if (!virtualAcc) {
