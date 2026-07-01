@@ -5157,9 +5157,24 @@ export default function FastPayApp() {
                         <div key={account.id} className="glass-panel" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px', borderLeft: account.is_enabled ? '3px solid var(--success)' : '3px solid var(--error)' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                             <div>
-                              <strong style={{ fontSize: '0.9rem', color: 'var(--text-primary)' }}>{account.bank_name}</strong> - <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>{account.beneficiary_name}</span>
-                              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                                Account / UPI: <strong style={{ color: 'var(--text-primary)' }}>{account.account_number}</strong> {account.ifsc && <>• IFSC: <strong>{account.ifsc}</strong></>} {account.upi_id && <>• Alt UPI: <strong>{account.upi_id}</strong></>}
+                              <div style={{ fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: '4px' }}>
+                                Account Holder: <strong>{account.beneficiary_name}</strong>
+                              </div>
+                              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                                Bank Name: <strong>{account.bank_name}</strong>
+                              </div>
+                              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                <span>Account Number: <strong style={{ color: 'var(--text-primary)' }}>{account.account_number}</strong></span>
+                                {account.ifsc && <span>IFSC Code: <strong>{account.ifsc}</strong></span>}
+                                <span>UPI ID: <strong style={{ color: 'var(--text-primary)' }}>{account.upi_id || 'N/A'}</strong></span>
+                                <span>
+                                  QR Code: {account.qr_code ? (
+                                    <strong style={{ color: 'var(--accent-secondary)', cursor: 'pointer' }} onClick={() => {
+                                      const w = window.open();
+                                      w.document.write(`<img src="${account.qr_code}" style="max-width:100%; max-height:100vh; display:block; margin:auto;">`);
+                                    }}>[View QR]</strong>
+                                  ) : 'None'}
+                                </span>
                               </div>
                             </div>
                             <div style={{ display: 'flex', gap: '6px' }}>
@@ -5198,48 +5213,42 @@ export default function FastPayApp() {
                             </div>
                           </div>
 
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', fontSize: '0.75rem', alignItems: 'center' }}>
-                            <div style={{
-                              background: isLockedNow ? 'rgba(253, 203, 110, 0.1)' : 'rgba(0, 184, 148, 0.1)',
-                              color: isLockedNow ? 'var(--gold)' : 'var(--success)',
-                              padding: '2px 8px',
-                              borderRadius: '4px',
-                              fontWeight: 600
-                            }}>
-                              {isLockedNow ? `🔒 In Use by ${account.locked_by_username || 'user'} (until ${new Date(account.locked_until).toLocaleTimeString()})` : '✅ Available'}
-                            </div>
-
-                            <button
-                              onClick={() => handleTogglePaymentAccountConcurrent(account.id)}
-                              style={{
-                                background: account.allow_concurrent ? 'rgba(108, 92, 231, 0.1)' : 'rgba(255, 255, 255, 0.05)',
-                                color: account.allow_concurrent ? '#a29bfe' : 'var(--text-secondary)',
-                                border: '1px solid var(--glass-border)',
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', borderTop: '1px solid var(--glass-border)', paddingTop: '8px', fontSize: '0.75rem' }}>
+                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                              <span style={{ color: 'var(--text-secondary)' }}>Current Status:</span>
+                              <div style={{
+                                background: isLockedNow ? 'rgba(253, 203, 110, 0.1)' : 'rgba(0, 184, 148, 0.1)',
+                                color: isLockedNow ? 'var(--gold)' : 'var(--success)',
                                 padding: '2px 8px',
                                 borderRadius: '4px',
-                                cursor: 'pointer'
-                              }}
-                            >
-                              👥 Concurrent: {account.allow_concurrent ? 'Allowed' : 'Disallowed'}
-                            </button>
+                                fontWeight: 600
+                              }}>
+                                {isLockedNow ? 'Reserved' : 'Available'}
+                              </div>
 
-                            {account.qr_code && (
                               <button
-                                onClick={() => {
-                                  const w = window.open();
-                                  w.document.write(`<img src="${account.qr_code}" style="max-width:100%; max-height:100vh; display:block; margin:auto;">`);
-                                }}
+                                onClick={() => handleTogglePaymentAccountConcurrent(account.id)}
                                 style={{
-                                  background: 'rgba(255, 255, 255, 0.05)',
+                                  background: account.allow_concurrent ? 'rgba(108, 92, 231, 0.1)' : 'rgba(255, 255, 255, 0.05)',
+                                  color: account.allow_concurrent ? '#a29bfe' : 'var(--text-secondary)',
                                   border: '1px solid var(--glass-border)',
                                   padding: '2px 8px',
                                   borderRadius: '4px',
                                   cursor: 'pointer',
-                                  color: 'var(--text-primary)'
+                                  fontSize: '0.7rem'
                                 }}
                               >
-                                🖼️ View QR Code
+                                👥 Concurrent: {account.allow_concurrent ? 'Allowed' : 'Disallowed'}
                               </button>
+                            </div>
+
+                            {isLockedNow && (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '2px', color: 'var(--text-secondary)' }}>
+                                <span>Reserved For: <strong>{account.locked_by_username || 'Unknown'} ({account.locked_by_user_id || 'N/A'})</strong></span>
+                                {account.last_assigned_at && (
+                                  <span>Reservation Time: <strong>{new Date(account.last_assigned_at).toLocaleString()}</strong></span>
+                                )}
+                              </div>
                             )}
                           </div>
                         </div>

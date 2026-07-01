@@ -206,6 +206,8 @@ export async function GET(request) {
       is_locked: va.is_locked || false,
       locked_until: va.locked_until || null,
       locked_by_username: va.locked_by_user_id ? va.locked_by_user_id.username : null,
+      locked_by_user_id: va.locked_by_user_id ? va.locked_by_user_id._id.toString() : null,
+      last_assigned_at: va.last_assigned_at || null,
       is_enabled: va.is_enabled !== false,
       allow_concurrent: va.allow_concurrent || false,
       qr_code: va.qr_code || ''

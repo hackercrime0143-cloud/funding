@@ -67,9 +67,9 @@ export async function POST(request) {
     }
 
     const reqAmount = parseFloat(amount);
+    const now = new Date();
 
     if (type === 'deposit') {
-      const now = new Date();
       const lockDurationMs = 15 * 60 * 1000; // Lock for 15 minutes
       const lockUntil = new Date(now.getTime() + lockDurationMs);
 
