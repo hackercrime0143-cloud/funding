@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
-import { User, Order, Transaction, Scheme } from '@/lib/models';
+import { User, Order, Transaction, Scheme, VirtualAccount } from '@/lib/models';
 import { getSessionFromCookies } from '@/lib/auth';
 
 export async function POST(request) {
@@ -19,7 +19,7 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Access denied. Admins only.' }, { status: 403 });
     }
 
-    const { orderId, action } = await request.json();
+    const { orderId, action, rejectionReason } = await request.json();
     if (!orderId) {
       return NextResponse.json({ error: 'Order ID is required.' }, { status: 400 });
     }
@@ -38,9 +38,16 @@ export async function POST(request) {
     if (action === 'reject') {
       // 1. Update order status to 'rejected'
       order.status = 'rejected';
+      order.rejection_reason = rejectionReason || '';
       await order.save();
 
-
+      // Release virtual account lock
+      if (order.virtual_account_id) {
+        await VirtualAccount.updateOne(
+          { _id: order.virtual_account_id },
+          { $set: { is_locked: false, locked_until: null, locked_by_user_id: null } }
+        );
+      }
 
       return NextResponse.json({
         success: true,
@@ -83,6 +90,14 @@ export async function POST(request) {
     order.days_remaining = Math.max(0, scheme.days - 1);
     order.last_payout_at = new Date();
     await order.save();
+
+    // Release virtual account lock
+    if (order.virtual_account_id) {
+      await VirtualAccount.updateOne(
+        { _id: order.virtual_account_id },
+        { $set: { is_locked: false, locked_until: null, locked_by_user_id: null } }
+      );
+    }
 
 
 

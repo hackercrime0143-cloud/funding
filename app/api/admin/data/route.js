@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
-import { User, BankDetails, Transaction, Order, Scheme } from '@/lib/models';
+import { User, BankDetails, Transaction, Order, Scheme, VirtualAccount } from '@/lib/models';
 import { getSessionFromCookies } from '@/lib/auth';
 
 // Helper to auto-cancel pending orders that are drafts (start with DRAFT-) older than 15 minutes
@@ -132,7 +132,19 @@ export async function GET(request) {
       utr: t.utr || null,
       screenshot: t.screenshot || null,
       created_at: t.created_at,
-      updated_at: t.updated_at || t.created_at
+      updated_at: t.updated_at || t.created_at,
+      
+      // Withdrawal details snapshots
+      user_username: t.user_username || (t.user_id ? t.user_id.username : 'Unknown'),
+      user_phone: t.user_phone || (t.user_id ? t.user_id.phone : 'Unknown'),
+      withdrawal_bank_name: t.withdrawal_bank_name || null,
+      withdrawal_account_name: t.withdrawal_account_name || null,
+      withdrawal_account_number: t.withdrawal_account_number || null,
+      withdrawal_ifsc: t.withdrawal_ifsc || null,
+      withdrawal_upi_id: t.withdrawal_upi_id || null,
+      wallet_balance_at_request: t.wallet_balance_at_request || (t.user_id ? t.user_id.wallet_balance : 0),
+      rejection_reason: t.rejection_reason || '',
+      resolved_at: t.resolved_at || null
     }));
 
     // 3. Get all orders with details
@@ -163,7 +175,9 @@ export async function GET(request) {
       virtual_bank: o.virtual_account_id ? o.virtual_account_id.bank_name : null,
       virtual_beneficiary: o.virtual_account_id ? o.virtual_account_id.beneficiary_name : null,
       virtual_ifsc: o.virtual_account_id ? o.virtual_account_id.ifsc : null,
-      virtual_upi: o.virtual_account_id ? o.virtual_account_id.upi_id : null
+      virtual_upi: o.virtual_account_id ? o.virtual_account_id.upi_id : null,
+      virtual_qr_code: o.virtual_account_id ? o.virtual_account_id.qr_code : null,
+      rejection_reason: o.rejection_reason || ''
     }));
 
     // 4. Get all schemes
@@ -177,12 +191,33 @@ export async function GET(request) {
       total_return: s.total_return
     }));
 
+    // 5. Get all virtual accounts
+    const rawVirtualAccounts = await VirtualAccount.find()
+      .populate('locked_by_user_id')
+      .sort({ _id: -1 });
+
+    const virtualAccounts = rawVirtualAccounts.map(va => ({
+      id: va._id.toString(),
+      account_number: va.account_number,
+      bank_name: va.bank_name,
+      beneficiary_name: va.beneficiary_name,
+      ifsc: va.ifsc,
+      upi_id: va.upi_id || '',
+      is_locked: va.is_locked || false,
+      locked_until: va.locked_until || null,
+      locked_by_username: va.locked_by_user_id ? va.locked_by_user_id.username : null,
+      is_enabled: va.is_enabled !== false,
+      allow_concurrent: va.allow_concurrent || false,
+      qr_code: va.qr_code || ''
+    }));
+
     return NextResponse.json({
       success: true,
       users,
       transactions,
       orders,
-      schemes
+      schemes,
+      virtualAccounts
     });
   } catch (error) {
     console.error('Admin fetch error:', error);

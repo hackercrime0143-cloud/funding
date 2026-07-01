@@ -116,6 +116,36 @@ export default function FastPayApp() {
   const [isPwaSupported, setIsPwaSupported] = useState(true);
   const [currentDraftOrderCreatedAt, setCurrentDraftOrderCreatedAt] = useState(null);
 
+  // Dynamic PWA settings states
+  const [pwaName, setPwaName] = useState('FastPay');
+  const [pwaShortName, setPwaShortName] = useState('FastPay');
+  const [pwaThemeColor, setPwaThemeColor] = useState('#000000');
+  const [pwaBackgroundColor, setPwaBackgroundColor] = useState('#000000');
+  const [pwaIcon, setPwaIcon] = useState('/icon-192.png');
+  const [pwaSplashScreen, setPwaSplashScreen] = useState('/icon-512.png');
+  const [pwaInstallPromptText, setPwaInstallPromptText] = useState('Install FastPay to your device home screen for a native, fast, and full-screen mobile app experience.');
+  const [pwaVersion, setPwaVersion] = useState('1.0.0');
+
+  // Admin PWA configuration states
+  const [adminPwaName, setAdminPwaName] = useState('FastPay');
+  const [adminPwaShortName, setAdminPwaShortName] = useState('FastPay');
+  const [adminPwaThemeColor, setAdminPwaThemeColor] = useState('#000000');
+  const [adminPwaBackgroundColor, setAdminPwaBackgroundColor] = useState('#000000');
+  const [adminPwaIcon, setAdminPwaIcon] = useState('/icon-192.png');
+  const [adminPwaSplashScreen, setAdminPwaSplashScreen] = useState('/icon-512.png');
+  const [adminPwaInstallPromptText, setAdminPwaInstallPromptText] = useState('Install FastPay to your device home screen for a native, fast, and full-screen mobile app experience.');
+  const [adminPwaVersion, setAdminPwaVersion] = useState('1.0.0');
+
+  // Payment Accounts pool state
+  const [adminVirtualAccounts, setAdminVirtualAccounts] = useState([]);
+  const [newPaBankName, setNewPaBankName] = useState('Axis Bank');
+  const [newPaBeneficiaryName, setNewPaBeneficiaryName] = useState('');
+  const [newPaAccountNumber, setNewPaAccountNumber] = useState('');
+  const [newPaIfsc, setNewPaIfsc] = useState('');
+  const [newPaUpiId, setNewPaUpiId] = useState('');
+  const [newPaQrCode, setNewPaQrCode] = useState(null);
+  const [newPaAllowConcurrent, setNewPaAllowConcurrent] = useState(false);
+
   // Admin Withdrawal Section States
   const [withdrawalFilter, setWithdrawalFilter] = useState('all');
   const [withdrawalDateRange, setWithdrawalDateRange] = useState('all');
@@ -138,6 +168,7 @@ export default function FastPayApp() {
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [depositAmount, setDepositAmount] = useState('');
   const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [withdrawLoading, setWithdrawLoading] = useState(false);
   const [virtualAccount, setVirtualAccount] = useState(null);
   const [virtualAccountTimer, setVirtualAccountTimer] = useState(0);
   const [txMessage, setTxMessage] = useState({ type: '', text: '' });
@@ -147,6 +178,9 @@ export default function FastPayApp() {
   const [depositScreenshot, setDepositScreenshot] = useState(null);
   const [currentDepositTxId, setCurrentDepositTxId] = useState(null);
   const [adminExpandedTxId, setAdminExpandedTxId] = useState(null);
+  const [isBankDetailsEditing, setIsBankDetailsEditing] = useState(false);
+  const [adminSelectedOrder, setAdminSelectedOrder] = useState(null);
+  const [orderRejectionReason, setOrderRejectionReason] = useState('');
 
   // Account settings state
   const [accountNumber, setAccountNumber] = useState('');
@@ -315,6 +349,25 @@ export default function FastPayApp() {
         fetchTransactions();
         fetchTeamData();
         fetchTasksProgress();
+        if (data.pwaSettings) {
+          setPwaName(data.pwaSettings.name || 'FastPay');
+          setPwaShortName(data.pwaSettings.shortName || 'FastPay');
+          setPwaThemeColor(data.pwaSettings.themeColor || '#000000');
+          setPwaBackgroundColor(data.pwaSettings.backgroundColor || '#000000');
+          setPwaIcon(data.pwaSettings.icon || '/icon-192.png');
+          setPwaSplashScreen(data.pwaSettings.splashScreen || '/icon-512.png');
+          setPwaInstallPromptText(data.pwaSettings.installPromptText || 'Install FastPay to your device home screen for a native, fast, and full-screen mobile app experience.');
+          setPwaVersion(data.pwaSettings.version || '1.0.0');
+
+          setAdminPwaName(data.pwaSettings.name || 'FastPay');
+          setAdminPwaShortName(data.pwaSettings.shortName || 'FastPay');
+          setAdminPwaThemeColor(data.pwaSettings.themeColor || '#000000');
+          setAdminPwaBackgroundColor(data.pwaSettings.backgroundColor || '#000000');
+          setAdminPwaIcon(data.pwaSettings.icon || '/icon-192.png');
+          setAdminPwaSplashScreen(data.pwaSettings.splashScreen || '/icon-512.png');
+          setAdminPwaInstallPromptText(data.pwaSettings.installPromptText || 'Install FastPay to your device home screen for a native, fast, and full-screen mobile app experience.');
+          setAdminPwaVersion(data.pwaSettings.version || '1.0.0');
+        }
         if (data.user.bankDetails) {
           setAccountNumber(data.user.bankDetails.account_number);
           setConfirmAccountNumber(data.user.bankDetails.account_number);
@@ -346,6 +399,7 @@ export default function FastPayApp() {
         setAdminTransactions(data.transactions);
         setAdminOrders(data.orders);
         setAdminSchemes(data.schemes);
+        setAdminVirtualAccounts(data.virtualAccounts || []);
       }
     } catch (e) {
       console.error('Error fetching admin data:', e);
@@ -390,6 +444,145 @@ export default function FastPayApp() {
       }
     } catch (e) {
       alert('Error saving APK link.');
+    }
+  };
+
+  const handleSavePwaSettings = async () => {
+    try {
+      const res = await fetch('/api/admin/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'savePwaSettings',
+          payload: {
+            name: adminPwaName,
+            shortName: adminPwaShortName,
+            themeColor: adminPwaThemeColor,
+            backgroundColor: adminPwaBackgroundColor,
+            icon: adminPwaIcon,
+            splashScreen: adminPwaSplashScreen,
+            installPromptText: adminPwaInstallPromptText,
+            version: adminPwaVersion
+          }
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(data.message);
+        setPwaName(adminPwaName);
+        setPwaShortName(adminPwaShortName);
+        setPwaThemeColor(adminPwaThemeColor);
+        setPwaBackgroundColor(adminPwaBackgroundColor);
+        setPwaIcon(adminPwaIcon);
+        setPwaSplashScreen(adminPwaSplashScreen);
+        setPwaInstallPromptText(adminPwaInstallPromptText);
+        setPwaVersion(adminPwaVersion);
+      } else {
+        alert(data.error || 'Failed to save PWA settings.');
+      }
+    } catch (e) {
+      alert('Error saving PWA settings.');
+    }
+  };
+
+  const handleAddPaymentAccount = async () => {
+    try {
+      const res = await fetch('/api/admin/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'addPaymentAccount',
+          payload: {
+            bankName: newPaBankName,
+            beneficiaryName: newPaBeneficiaryName,
+            accountNumber: newPaAccountNumber,
+            ifsc: newPaIfsc,
+            upiId: newPaUpiId,
+            qrCode: newPaQrCode,
+            allowConcurrent: newPaAllowConcurrent
+          }
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(data.message);
+        setNewPaBeneficiaryName('');
+        setNewPaAccountNumber('');
+        setNewPaIfsc('');
+        setNewPaUpiId('');
+        setNewPaQrCode(null);
+        setNewPaAllowConcurrent(false);
+        fetchAdminData();
+      } else {
+        alert(data.error || 'Failed to add payment account.');
+      }
+    } catch (e) {
+      alert('Error adding payment account.');
+    }
+  };
+
+  const handleTogglePaymentAccountStatus = async (id) => {
+    try {
+      const res = await fetch('/api/admin/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'togglePaymentAccountStatus',
+          payload: { id }
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        fetchAdminData();
+      } else {
+        alert(data.error || 'Failed to toggle status.');
+      }
+    } catch (e) {
+      alert('Error toggling status.');
+    }
+  };
+
+  const handleTogglePaymentAccountConcurrent = async (id) => {
+    try {
+      const res = await fetch('/api/admin/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'togglePaymentAccountConcurrent',
+          payload: { id }
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        fetchAdminData();
+      } else {
+        alert(data.error || 'Failed to toggle concurrency.');
+      }
+    } catch (e) {
+      alert('Error toggling concurrency.');
+    }
+  };
+
+  const handleDeletePaymentAccount = async (id) => {
+    if (!confirm('Are you sure you want to delete this payment account?')) return;
+    try {
+      const res = await fetch('/api/admin/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'deletePaymentAccount',
+          payload: { id }
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(data.message);
+        fetchAdminData();
+      } else {
+        alert(data.error || 'Failed to delete payment account.');
+      }
+    } catch (e) {
+      alert('Error deleting payment account.');
     }
   };
 
@@ -698,11 +891,13 @@ export default function FastPayApp() {
 
   const handleWithdrawalSubmit = async (e) => {
     e.preventDefault();
+    if (withdrawLoading) return;
     setTxMessage({ type: '', text: '' });
     if (!withdrawAmount || parseFloat(withdrawAmount) <= 0) {
       setTxMessage({ type: 'error', text: 'Enter a valid withdrawal amount.' });
       return;
     }
+    setWithdrawLoading(true);
     try {
       const res = await fetch('/api/transactions', {
         method: 'POST',
@@ -721,6 +916,8 @@ export default function FastPayApp() {
       }
     } catch (err) {
       setTxMessage({ type: 'error', text: 'Server error requesting withdrawal.' });
+    } finally {
+      setWithdrawLoading(false);
     }
   };
 
@@ -766,6 +963,7 @@ export default function FastPayApp() {
       const data = await res.json();
       if (data.success) {
         setBankLinkMessage({ type: 'success', text: data.message });
+        setIsBankDetailsEditing(false);
         fetchSession();
       } else {
         setBankLinkMessage({ type: 'error', text: data.error });
@@ -964,12 +1162,12 @@ export default function FastPayApp() {
     }
   };
 
-  const handleApproveOrder = async (orderId, action = 'approve') => {
+  const handleApproveOrder = async (orderId, action = 'approve', rejectionReason = '') => {
     try {
       const res = await fetch('/api/orders/approve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderId, action }),
+        body: JSON.stringify({ orderId, action, rejectionReason }),
       });
       const data = await res.json();
       if (data.success) {
@@ -978,6 +1176,12 @@ export default function FastPayApp() {
         fetchOrders();
         fetchTransactions();
         fetchAdminData();
+        if (selectedAdminUserId) {
+          fetchUserProfileDetails(selectedAdminUserId);
+        }
+        setAdminView('user-profile');
+        setAdminSelectedOrder(null);
+        setOrderRejectionReason('');
       } else {
         alert(data.error || 'Operation failed.');
       }
@@ -1816,10 +2020,10 @@ export default function FastPayApp() {
             <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '10px', border: '1px solid var(--accent-primary)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span style={{ fontSize: '1.25rem' }}>📱</span>
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0 }} className="gradient-text">Install the App</h3>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0 }} className="gradient-text">Install {pwaName}</h3>
               </div>
               <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: '1.4', margin: 0 }}>
-                Install FastPay to your device home screen for a native, fast, and full-screen mobile app experience.
+                {pwaInstallPromptText}
               </p>
               {isPwaSupported ? (
                 <button
@@ -1836,49 +2040,6 @@ export default function FastPayApp() {
               )}
             </div>
           )}
-
-          {/* Download App Card */}
-          <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '10px', border: '1px solid var(--accent-secondary)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '1.25rem' }}>📱</span>
-              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0 }} className="gradient-text">Download the App</h3>
-            </div>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: '1.4', margin: 0 }}>
-              Download the latest FastPay application directly to your device for a faster and better experience.
-            </p>
-            <button
-              onClick={() => {
-                if (apkDownloadUrl) {
-                  fetch(apkDownloadUrl)
-                    .then(response => response.blob())
-                    .then(blob => {
-                      const url = window.URL.createObjectURL(blob);
-                      const link = document.createElement('a');
-                      link.href = url;
-                      link.setAttribute('download', apkDownloadUrl.split('/').pop() || 'fastpay.apk');
-                      document.body.appendChild(link);
-                      link.click();
-                      document.body.removeChild(link);
-                      window.URL.revokeObjectURL(url);
-                    })
-                    .catch(() => {
-                      const link = document.createElement('a');
-                      link.href = apkDownloadUrl;
-                      link.setAttribute('download', 'fastpay.apk');
-                      document.body.appendChild(link);
-                      link.click();
-                      document.body.removeChild(link);
-                    });
-                } else {
-                  alert('App download URL is currently not configured by the admin.');
-                }
-              }}
-              className="gradient-btn"
-              style={{ width: '100%', padding: '12px', borderRadius: '8px', fontSize: '0.9rem', fontWeight: 700 }}
-            >
-              Download Now
-            </button>
-          </div>
 
           {/* Referral Rewards Explanation Cards */}
           <div style={{ marginTop: '20px' }}>
@@ -1948,6 +2109,7 @@ export default function FastPayApp() {
                   placeholder="Exact Name on Passbook"
                   value={accountName}
                   onChange={(e) => setAccountName(e.target.value)}
+                  disabled={user?.isBankLinked && !isBankDetailsEditing}
                   required
                 />
               </div>
@@ -1960,6 +2122,7 @@ export default function FastPayApp() {
                   placeholder="Bank account number"
                   value={accountNumber}
                   onChange={(e) => setAccountNumber(e.target.value)}
+                  disabled={user?.isBankLinked && !isBankDetailsEditing}
                   required
                 />
               </div>
@@ -1972,6 +2135,7 @@ export default function FastPayApp() {
                   placeholder="Re-enter bank account number"
                   value={confirmAccountNumber}
                   onChange={(e) => setConfirmAccountNumber(e.target.value)}
+                  disabled={user?.isBankLinked && !isBankDetailsEditing}
                   required
                 />
               </div>
@@ -1984,6 +2148,7 @@ export default function FastPayApp() {
                   placeholder="e.g. SBIN0012345"
                   value={ifsc}
                   onChange={(e) => setIfsc(e.target.value)}
+                  disabled={user?.isBankLinked && !isBankDetailsEditing}
                   required
                 />
               </div>
@@ -1996,13 +2161,54 @@ export default function FastPayApp() {
                   placeholder="e.g. user@ybl"
                   value={upiId}
                   onChange={(e) => setUpiId(e.target.value)}
+                  disabled={user?.isBankLinked && !isBankDetailsEditing}
                   required
                 />
               </div>
 
-              <button type="submit" className="gradient-btn" style={{ padding: '14px', borderRadius: '10px', fontSize: '1rem', marginTop: '8px' }}>
-                Verify & Save Settings
-              </button>
+              {user?.isBankLinked ? (
+                !isBankDetailsEditing ? (
+                  <button
+                    type="button"
+                    onClick={() => setIsBankDetailsEditing(true)}
+                    className="gradient-btn"
+                    style={{ padding: '14px', borderRadius: '10px', fontSize: '1rem', marginTop: '8px' }}
+                  >
+                    Edit Settings
+                  </button>
+                ) : (
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+                    <button
+                      type="submit"
+                      className="gradient-btn"
+                      style={{ flex: 1, padding: '14px', borderRadius: '10px', fontSize: '1rem' }}
+                    >
+                      Save Changes
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (user && user.bankDetails) {
+                          setAccountNumber(user.bankDetails.account_number);
+                          setConfirmAccountNumber(user.bankDetails.account_number);
+                          setAccountName(user.bankDetails.account_name);
+                          setIfsc(user.bankDetails.ifsc);
+                          setUpiId(user.bankDetails.upi_id);
+                        }
+                        setIsBankDetailsEditing(false);
+                        setBankLinkMessage({ type: '', text: '' });
+                      }}
+                      style={{ flex: 1, padding: '14px', borderRadius: '10px', background: 'none', border: '1px solid var(--text-secondary)', color: 'var(--text-primary)', fontSize: '1rem', cursor: 'pointer' }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )
+              ) : (
+                <button type="submit" className="gradient-btn" style={{ padding: '14px', borderRadius: '10px', fontSize: '1rem', marginTop: '8px' }}>
+                  Verify & Save Settings
+                </button>
+              )}
             </form>
           </div>
         </div>
@@ -2093,7 +2299,13 @@ export default function FastPayApp() {
                           borderRadius: '4px',
                           textTransform: 'capitalize'
                         }}>
-                          {item.status === 'confirmation_pending' ? 'Confirmation Pending' : item.status === 'pending' ? 'Pending' : item.status}
+                          {item.type === 'withdrawal' ? (
+                            item.status === 'completed' ? 'Approved' :
+                            item.status === 'failed' ? 'Rejected' :
+                            item.status === 'pending' ? 'Pending' : item.status
+                          ) : (
+                            item.status === 'confirmation_pending' ? 'Confirmation Pending' : item.status === 'pending' ? 'Pending' : item.status
+                          )}
                         </span>
                       </div>
                     </div>
@@ -2439,8 +2651,11 @@ export default function FastPayApp() {
                 { id: 'overview', label: 'Platform Overview' },
                 { id: 'users', label: 'User Management' },
                 { id: 'transactions', label: 'Transaction Resolving' },
+                { id: 'orders', label: 'Scheme Purchases' },
                 { id: 'schemes', label: 'Investment Schemes' },
-                { id: 'withdrawals', label: 'Withdrawal Manager' }
+                { id: 'withdrawals', label: 'Withdrawal Manager' },
+                { id: 'pwa-settings', label: 'PWA Settings' },
+                { id: 'payment-accounts', label: 'Payment Accounts' }
               ].map((tab) => (
                 <button
                   key={tab.id}
@@ -2601,22 +2816,34 @@ export default function FastPayApp() {
                             </tr>
                           </thead>
                           <tbody>
-                            {adminUserProfileData.investments.map((inv) => (
-                              <tr key={inv.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
-                                <td style={{ padding: '8px 6px', fontWeight: 600 }}>{inv.name}</td>
-                                <td style={{ padding: '8px 6px' }}>₹{inv.price.toFixed(2)}</td>
-                                <td style={{ padding: '8px 6px', color: 'var(--success)' }}>₹{inv.daily_income.toFixed(2)}</td>
-                                <td style={{ padding: '8px 6px' }}>{inv.days_remaining} days</td>
-                                <td style={{ padding: '8px 6px' }}>
-                                  <span style={{
-                                    color: inv.status === 'active' ? 'var(--success)' : inv.status === 'pending' ? 'var(--gold)' : 'var(--text-secondary)',
-                                    textTransform: 'capitalize',
-                                    fontWeight: 700
-                                  }}>{inv.status}</span>
-                                </td>
-                                <td style={{ padding: '8px 6px' }}>{new Date(inv.created_at).toLocaleDateString()}</td>
-                              </tr>
-                            ))}
+                            {adminUserProfileData.investments.map((inv) => {
+                              const isClickable = inv.status === 'active' || inv.status === 'confirmation_pending' || inv.status === 'pending';
+                              return (
+                                <tr 
+                                  key={inv.id} 
+                                  onClick={isClickable ? () => {
+                                    setAdminSelectedOrder(inv);
+                                    setOrderRejectionReason('');
+                                    setAdminView('admin-order-detail');
+                                  } : undefined}
+                                  className={isClickable ? "interactive-card" : ""}
+                                  style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', cursor: isClickable ? 'pointer' : 'default' }}
+                                >
+                                  <td style={{ padding: '8px 6px', fontWeight: 600 }}>{inv.name}</td>
+                                  <td style={{ padding: '8px 6px' }}>₹{inv.price.toFixed(2)}</td>
+                                  <td style={{ padding: '8px 6px', color: 'var(--success)' }}>₹{inv.daily_income.toFixed(2)}</td>
+                                  <td style={{ padding: '8px 6px' }}>{inv.days_remaining} days</td>
+                                  <td style={{ padding: '8px 6px' }}>
+                                    <span style={{
+                                      color: inv.status === 'active' ? 'var(--success)' : inv.status === 'pending' || inv.status === 'confirmation_pending' ? 'var(--gold)' : 'var(--text-secondary)',
+                                      textTransform: 'capitalize',
+                                      fontWeight: 700
+                                    }}>{inv.status === 'confirmation_pending' ? 'Confirmation Pending' : inv.status}</span>
+                                  </td>
+                                  <td style={{ padding: '8px 6px' }}>{new Date(inv.created_at).toLocaleDateString()}</td>
+                                </tr>
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>
@@ -3061,6 +3288,292 @@ export default function FastPayApp() {
             </div>
           )}
 
+          {/* Dedicated Sub-Page: Order/Subscription Details (Verification or Simulation) */}
+          {adminView === 'admin-order-detail' && adminSelectedOrder && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--glass-border)', paddingBottom: '10px' }}>
+                <h3 style={{ fontSize: '1.2rem', fontWeight: 700 }} className="gradient-text">📈 Subscription Verification</h3>
+                <button
+                  onClick={() => {
+                    setAdminView('user-profile');
+                  }}
+                  className="form-input"
+                  style={{ width: 'auto', background: 'var(--bg-secondary)', padding: '6px 14px', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer', fontWeight: 600 }}
+                >
+                  ← Back to Profile
+                </button>
+              </div>
+
+              {adminSelectedOrder.status === 'confirmation_pending' && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                  {/* Left Column: Details */}
+                  <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <h4 style={{ fontWeight: 600, color: 'var(--gold)', fontSize: '0.95rem', borderBottom: '1px solid var(--glass-border)', paddingBottom: '8px' }}>Payment Verification Details</h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '0.85rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Selected Scheme:</span>
+                        <strong>{adminSelectedOrder.name}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Investment Amount:</span>
+                        <strong style={{ color: 'var(--accent-secondary)' }}>₹{adminSelectedOrder.price}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Assigned Bank Account:</span>
+                        <strong>{adminSelectedOrder.virtual_account || '912010087654321'}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Assigned UPI ID:</span>
+                        <strong>{adminSelectedOrder.virtual_upi || 'fastpay@upi'}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Submitted UTR:</span>
+                        <strong style={{ color: 'var(--accent-secondary)', letterSpacing: '0.5px' }}>{adminSelectedOrder.utr}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Submission Date:</span>
+                        <strong>{new Date(adminSelectedOrder.created_at).toLocaleString()}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Current Status:</span>
+                        <span style={{ fontSize: '0.75rem', background: 'rgba(253, 203, 110, 0.1)', color: 'var(--gold)', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>
+                          Confirmation Pending
+                        </span>
+                      </div>
+                    </div>
+
+                    <div style={{ marginTop: '10px', borderTop: '1px solid var(--glass-border)', paddingTop: '15px' }}>
+                      <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Rejection Reason (required if rejecting)</label>
+                      <textarea
+                        className="form-input"
+                        placeholder="Enter reason for rejecting this payment"
+                        value={orderRejectionReason}
+                        onChange={(e) => setOrderRejectionReason(e.target.value)}
+                        style={{ height: '70px', resize: 'none', fontSize: '0.8rem' }}
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                      <button
+                        onClick={() => handleApproveOrder(adminSelectedOrder.id, 'approve')}
+                        className="gradient-btn"
+                        style={{ flex: 1, padding: '12px', borderRadius: '8px', fontSize: '0.9rem', fontWeight: 700 }}
+                      >
+                        Approve Payment
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (!orderRejectionReason.trim()) {
+                            alert('Please enter a rejection reason.');
+                            return;
+                          }
+                          handleApproveOrder(adminSelectedOrder.id, 'reject', orderRejectionReason);
+                        }}
+                        style={{ flex: 1, padding: '12px', borderRadius: '8px', background: 'none', border: '1px solid var(--error)', color: 'var(--error)', fontSize: '0.9rem', cursor: 'pointer', fontWeight: 700 }}
+                      >
+                        Reject Payment
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Right Column: Screenshot & QR */}
+                  <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <h4 style={{ fontWeight: 600, color: 'var(--success)', fontSize: '0.95rem', borderBottom: '1px solid var(--glass-border)', paddingBottom: '8px' }}>Uploaded Proof & QR Code</h4>
+                    {adminSelectedOrder.screenshot ? (
+                      <div>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Payment Screenshot:</span>
+                        <div style={{ border: '1px solid var(--glass-border)', borderRadius: '8px', overflow: 'hidden', cursor: 'pointer', textAlign: 'center' }}>
+                          <img
+                            src={adminSelectedOrder.screenshot}
+                            alt="Receipt"
+                            onClick={() => {
+                              const w = window.open();
+                              w.document.write(`<img src="${adminSelectedOrder.screenshot}" style="max-width:100%; max-height:100vh; display:block; margin:auto;">`);
+                              w.document.title = "Payment Receipt";
+                            }}
+                            style={{ maxWidth: '100%', maxHeight: '200px', objectFit: 'contain' }}
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ padding: '20px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                        No Screenshot Uploaded
+                      </div>
+                    )}
+
+                    <div style={{ marginTop: '10px' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Assigned Account QR:</span>
+                      <div style={{ background: '#fff', padding: '10px', borderRadius: '8px', width: '120px', height: '120px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <img
+                          src={adminSelectedOrder.virtual_qr_code ? adminSelectedOrder.virtual_qr_code : `https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(`upi://pay?pa=${adminSelectedOrder.virtual_upi || 'fastpay@upi'}&pn=FastPay&am=${adminSelectedOrder.price}&cu=INR`)}`}
+                          alt="QR Code"
+                          style={{ width: '100px', height: '100px', objectFit: 'contain' }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {adminSelectedOrder.status === 'pending' && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                  {/* Left Column: Details */}
+                  <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <h4 style={{ fontWeight: 600, color: 'var(--gold)', fontSize: '0.95rem', borderBottom: '1px solid var(--glass-border)', paddingBottom: '8px' }}>Pending Payment Page (Simulated)</h4>
+                    
+                    {/* Remaining Timer */}
+                    {(() => {
+                      const createdAt = new Date(adminSelectedOrder.created_at);
+                      const now = new Date();
+                      const elapsedSecs = Math.floor((now - createdAt) / 1000);
+                      const remainingSecs = Math.max(0, 900 - elapsedSecs);
+                      
+                      return remainingSecs > 0 ? (
+                        <div style={{ padding: '10px', background: 'rgba(0, 206, 201, 0.1)', border: '1px solid rgba(0, 206, 201, 0.2)', borderRadius: '10px', textAlign: 'center' }}>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'block', letterSpacing: '0.5px' }}>REMAINING TIMEOUT (SIMULATED)</span>
+                          <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--accent-secondary)', marginTop: '2px' }}>
+                            {formatTimerValue(remainingSecs)}
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ padding: '10px', background: 'rgba(255, 118, 117, 0.1)', border: '1px solid rgba(255, 118, 117, 0.2)', borderRadius: '10px', textAlign: 'center', color: 'var(--error)', fontSize: '0.8rem' }}>
+                          <strong>Expired:</strong> 15-minute payment window has expired.
+                        </div>
+                      );
+                    })()}
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '0.85rem', marginTop: '10px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Selected Scheme:</span>
+                        <strong>{adminSelectedOrder.name}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Payment Amount:</span>
+                        <strong style={{ color: 'var(--accent-secondary)', fontSize: '1.05rem' }}>₹{adminSelectedOrder.price}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Submission Date:</span>
+                        <strong>{new Date(adminSelectedOrder.created_at).toLocaleString()}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Status:</span>
+                        <span style={{ fontSize: '0.75rem', background: 'rgba(253, 203, 110, 0.1)', color: 'var(--gold)', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>
+                          Pending Payment
+                        </span>
+                      </div>
+                    </div>
+
+                    <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', borderRadius: '10px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.8rem', marginTop: '10px' }}>
+                      <div style={{ fontWeight: 600, color: 'var(--accent-secondary)', marginBottom: '4px' }}>Assigned Bank Account details:</div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Beneficiary Name:</span>
+                        <strong>{adminSelectedOrder.virtual_beneficiary || 'FastPay Ecosystem'}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Bank Name:</span>
+                        <strong>{adminSelectedOrder.virtual_bank || 'Axis Bank'}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Account Number:</span>
+                        <strong>{adminSelectedOrder.virtual_account || '912010087654321'}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>IFSC Code:</span>
+                        <strong>{adminSelectedOrder.virtual_ifsc || 'UTIB0000123'}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>UPI ID:</span>
+                        <strong>{adminSelectedOrder.virtual_upi || 'fastpay@upi'}</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right Column: QR and Instructions */}
+                  <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px', justifyContent: 'center' }}>
+                    <div style={{ textAlign: 'center', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '5px' }}>
+                      Assigned UPI QR Code:
+                    </div>
+
+                    <div style={{ background: '#fff', padding: '10px', borderRadius: '12px', width: '180px', height: '180px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <img
+                        src={adminSelectedOrder.virtual_qr_code ? adminSelectedOrder.virtual_qr_code : `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(`upi://pay?pa=${adminSelectedOrder.virtual_upi || 'fastpay@upi'}&pn=FastPay&am=${adminSelectedOrder.price}&cu=INR`)}`}
+                        alt="QR Code"
+                        style={{ width: '160px', height: '160px', objectFit: 'contain' }}
+                      />
+                    </div>
+
+                    <div style={{ border: '1px solid rgba(253, 203, 110, 0.2)', background: 'rgba(253, 203, 110, 0.05)', padding: '12px', borderRadius: '10px', fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+                      <strong style={{ color: 'var(--gold)', display: 'block', marginBottom: '4px' }}>Payment Instructions:</strong>
+                      1. Scan the QR code or copy bank details to pay.<br />
+                      2. Complete the payment within the 15-minute window.<br />
+                      3. Input the 12-digit transaction UTR number and upload the receipt image to request verification.
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {adminSelectedOrder.status === 'active' && (
+                <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <h4 style={{ fontWeight: 600, color: 'var(--success)', fontSize: '0.95rem', borderBottom: '1px solid var(--glass-border)', paddingBottom: '8px' }}>Active Investment Details</h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '0.85rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Selected Scheme:</span>
+                        <strong>{adminSelectedOrder.name}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Investment Price:</span>
+                        <strong>₹{adminSelectedOrder.price}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Daily Returns:</span>
+                        <strong style={{ color: 'var(--success)' }}>₹{adminSelectedOrder.daily_income}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Days Remaining:</span>
+                        <strong>{adminSelectedOrder.days_remaining} Days</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Purchase Date:</span>
+                        <strong>{new Date(adminSelectedOrder.created_at).toLocaleString()}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Status:</span>
+                        <span style={{ fontSize: '0.75rem', background: 'rgba(0, 184, 148, 0.1)', color: 'var(--success)', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>
+                          Active
+                        </span>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.85rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Verified UTR ID:</span>
+                        <strong style={{ color: 'var(--accent-secondary)' }}>{adminSelectedOrder.utr}</strong>
+                      </div>
+                      {adminSelectedOrder.screenshot && (
+                        <div>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Verified Payment Proof:</span>
+                          <div style={{ border: '1px solid var(--glass-border)', borderRadius: '8px', overflow: 'hidden', cursor: 'pointer', textAlign: 'center', width: 'fit-content' }}>
+                            <img
+                              src={adminSelectedOrder.screenshot}
+                              alt="Receipt"
+                              onClick={() => {
+                                const w = window.open();
+                                w.document.write(`<img src="${adminSelectedOrder.screenshot}" style="max-width:100%; max-height:100vh; display:block; margin:auto;">`);
+                                w.document.title = "Verified Payment Proof";
+                              }}
+                              style={{ maxWidth: '100%', maxHeight: '120px', objectFit: 'contain' }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Section: Platform Overview (Screenshot Style - Light Version) */}
           {adminActiveSubTab === 'overview' && adminView === 'dashboard' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -3307,8 +3820,8 @@ export default function FastPayApp() {
                                   <div>Submitted UTR: <strong style={{ color: 'var(--text-primary)', fontSize: '0.85rem' }}>{item.utr}</strong></div>
                                   <div>Date: {new Date(item.created_at).toLocaleString()}</div>
                                 </div>
-                                {item.screenshot && (
-                                  <div style={{ marginTop: '10px' }}>
+                                {item.screenshot ? (
+                                  <div style={{ marginTop: '10px', marginBottom: '12px' }}>
                                     <span style={{ fontSize: '0.75rem', color: '#a0a8c0', display: 'block', marginBottom: '4px' }}>Submitted Receipt:</span>
                                     <img
                                       src={item.screenshot}
@@ -3319,6 +3832,10 @@ export default function FastPayApp() {
                                       }}
                                       style={{ maxWidth: '100%', maxHeight: '180px', borderRadius: '6px', cursor: 'pointer' }}
                                     />
+                                  </div>
+                                ) : (
+                                  <div style={{ marginTop: '10px', padding: '10px', background: 'rgba(255,255,255,0.05)', borderRadius: '6px', fontSize: '0.75rem', color: 'var(--text-secondary)', textAlign: 'center' }}>
+                                    No Screenshot Uploaded
                                   </div>
                                 )}
                               </div>
@@ -3382,7 +3899,7 @@ export default function FastPayApp() {
                                   Submitted UTR: <strong style={{ color: 'var(--text-primary)', fontSize: '0.85rem' }}>{item.utr}</strong>
                                 </div>
                               )}
-                              {item.screenshot && (
+                              {item.screenshot ? (
                                 <div style={{ marginTop: '10px', marginBottom: '12px' }}>
                                   <span style={{ fontSize: '0.75rem', color: '#a0a8c0', display: 'block', marginBottom: '4px' }}>Submitted Receipt:</span>
                                   <img
@@ -3394,6 +3911,10 @@ export default function FastPayApp() {
                                     }}
                                     style={{ maxWidth: '100%', maxHeight: '180px', borderRadius: '6px', cursor: 'pointer' }}
                                   />
+                                </div>
+                              ) : (
+                                <div style={{ marginTop: '10px', marginBottom: '12px', padding: '10px', background: 'rgba(255,255,255,0.05)', borderRadius: '6px', fontSize: '0.75rem', color: 'var(--text-secondary)', textAlign: 'center' }}>
+                                  No Screenshot Uploaded
                                 </div>
                               )}
 
@@ -3407,7 +3928,12 @@ export default function FastPayApp() {
                                     Approve
                                   </button>
                                   <button
-                                    onClick={() => handleAdminAction('rejectTransaction', { transactionId: item.id })}
+                                    onClick={() => {
+                                      const reason = prompt('Enter rejection reason (optional):');
+                                      if (reason !== null) {
+                                        handleAdminAction('rejectTransaction', { transactionId: item.id, rejectionReason: reason });
+                                      }
+                                    }}
                                     style={{ flex: 1, padding: '8px', borderRadius: '4px', background: 'none', border: '1px solid var(--error)', color: 'var(--error)', fontSize: '0.8rem', cursor: 'pointer' }}
                                   >
                                     Reject
@@ -3532,7 +4058,7 @@ export default function FastPayApp() {
                               </div>
 
                               {/* Screenshot displaying */}
-                              {order.screenshot && (
+                              {order.screenshot ? (
                                 <div style={{ marginTop: '10px', marginBottom: '12px' }}>
                                   <span style={{ fontSize: '0.75rem', color: '#a0a8c0', display: 'block', marginBottom: '4px' }}>Submitted Receipt Screenshot:</span>
                                   <div style={{ position: 'relative', width: '100%', maxHeight: '180px', overflow: 'hidden', borderRadius: '8px', border: '1px solid #202736', cursor: 'pointer' }}>
@@ -3549,6 +4075,10 @@ export default function FastPayApp() {
                                     />
                                   </div>
                                   <span style={{ fontSize: '0.7rem', color: 'var(--accent-secondary)', display: 'block', textAlign: 'center', marginTop: '4px' }}>(Click image to view full receipt)</span>
+                                </div>
+                              ) : (
+                                <div style={{ marginTop: '10px', marginBottom: '12px', padding: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '6px', fontSize: '0.85rem', color: 'var(--text-secondary)', textAlign: 'center' }}>
+                                  No Screenshot Uploaded
                                 </div>
                               )}
 
@@ -3798,8 +4328,7 @@ export default function FastPayApp() {
                                   )}
                                 </div>
 
-                                {/* Screenshot displaying */}
-                                {order.screenshot && (
+                                {order.screenshot ? (
                                   <div style={{ marginTop: '10px', marginBottom: '12px' }}>
                                     <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Submitted Receipt Screenshot:</span>
                                     <div style={{ position: 'relative', width: '100%', maxHeight: '180px', overflow: 'hidden', borderRadius: '6px', border: '1px solid var(--glass-border)', cursor: 'pointer' }}>
@@ -3816,6 +4345,10 @@ export default function FastPayApp() {
                                       />
                                     </div>
                                     <span style={{ fontSize: '0.7rem', color: 'var(--accent-secondary)', display: 'block', textAlign: 'center', marginTop: '4px' }}>(Click image to view full receipt)</span>
+                                  </div>
+                                ) : (
+                                  <div style={{ marginTop: '10px', marginBottom: '12px', padding: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '6px', fontSize: '0.85rem', color: 'var(--text-secondary)', textAlign: 'center' }}>
+                                    No Screenshot Uploaded
                                   </div>
                                 )}
 
@@ -4311,17 +4844,20 @@ export default function FastPayApp() {
 
                             {/* Settlement Bank/UPI Details */}
                             <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', padding: '10px', borderRadius: '6px', fontSize: '0.75rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
-                              <div>Bank/UPI Beneficiary: <strong>{user?.bankDetails?.accountName || 'Unknown'}</strong></div>
-                              <div>UPI ID: <strong style={{ color: 'var(--accent-secondary)' }}>{user?.bankDetails?.upiId || 'Not Linked'}</strong></div>
-                              <div>Account Number: <strong>{user?.bankDetails?.accountNumber || 'Not Linked'}</strong></div>
-                              <div>IFSC Code: <strong>{user?.bankDetails?.ifsc || 'Not Linked'}</strong></div>
+                              <div>Bank Name: <strong>{item.withdrawal_bank_name || 'UPI/Bank'}</strong></div>
+                              <div>Bank/UPI Beneficiary: <strong>{item.withdrawal_account_name || user?.bankDetails?.accountName || 'Unknown'}</strong></div>
+                              <div>UPI ID: <strong style={{ color: 'var(--accent-secondary)' }}>{item.withdrawal_upi_id || user?.bankDetails?.upiId || 'Not Linked'}</strong></div>
+                              <div>Account Number: <strong>{item.withdrawal_account_number || user?.bankDetails?.accountNumber || 'Not Linked'}</strong></div>
+                              <div>IFSC Code: <strong>{item.withdrawal_ifsc || user?.bankDetails?.ifsc || 'Not Linked'}</strong></div>
+                              <div>Wallet Balance (Request Time): <strong>₹{(item.wallet_balance_at_request || user?.wallet_balance || 0).toFixed(2)}</strong></div>
+                              {item.rejection_reason && <div style={{ gridColumn: 'span 2', color: 'var(--error)' }}>Reason: <strong>{item.rejection_reason}</strong></div>}
                             </div>
 
                             {/* Timeline */}
                             <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--glass-border)', paddingTop: '8px' }}>
                               <span>Requested: {new Date(item.created_at).toLocaleString()}</span>
                               {item.status !== 'pending' && (
-                                <span>Resolved: {new Date(item.updated_at || item.created_at).toLocaleString()}</span>
+                                <span>Resolved: {new Date(item.resolved_at || item.updated_at || item.created_at).toLocaleString()}</span>
                               )}
                             </div>
 
@@ -4336,7 +4872,12 @@ export default function FastPayApp() {
                                   Approve Request
                                 </button>
                                 <button
-                                  onClick={() => handleAdminAction('rejectTransaction', { transactionId: item.id })}
+                                  onClick={() => {
+                                    const reason = prompt('Enter rejection reason (optional):');
+                                    if (reason !== null) {
+                                      handleAdminAction('rejectTransaction', { transactionId: item.id, rejectionReason: reason });
+                                    }
+                                  }}
                                   style={{ flex: 1, padding: '8px', borderRadius: '6px', background: 'none', border: '1px solid var(--error)', color: 'var(--error)', fontSize: '0.8rem', cursor: 'pointer', fontWeight: 700 }}
                                 >
                                   Reject Request
@@ -4375,6 +4916,338 @@ export default function FastPayApp() {
                   </div>
                 );
               })()}
+            </div>
+          )}
+
+          {/* Section: PWA Settings (dynamic configuration) */}
+          {adminActiveSubTab === 'pwa-settings' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)' }}>PWA Settings Configuration</h3>
+              <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Application Name</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={adminPwaName}
+                      onChange={(e) => setAdminPwaName(e.target.value)}
+                      style={{ fontSize: '0.8rem', width: '100%' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Short Name</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={adminPwaShortName}
+                      onChange={(e) => setAdminPwaShortName(e.target.value)}
+                      style={{ fontSize: '0.8rem', width: '100%' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Theme Color</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={adminPwaThemeColor}
+                      onChange={(e) => setAdminPwaThemeColor(e.target.value)}
+                      style={{ fontSize: '0.8rem', width: '100%' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Background Color</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={adminPwaBackgroundColor}
+                      onChange={(e) => setAdminPwaBackgroundColor(e.target.value)}
+                      style={{ fontSize: '0.8rem', width: '100%' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>App Icon (Upload)</label>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="form-input"
+                      onChange={(e) => {
+                        const file = e.target.files[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onloadend = () => {
+                            setAdminPwaIcon(reader.result);
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                      style={{ fontSize: '0.8rem', width: '100%', padding: '6px' }}
+                    />
+                    <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>Current path: {adminPwaIcon}</span>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Splash Screen (Upload)</label>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="form-input"
+                      onChange={(e) => {
+                        const file = e.target.files[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onloadend = () => {
+                            setAdminPwaSplashScreen(reader.result);
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                      style={{ fontSize: '0.8rem', width: '100%', padding: '6px' }}
+                    />
+                    <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>Current path: {adminPwaSplashScreen}</span>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>App Version</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={adminPwaVersion}
+                      onChange={(e) => setAdminPwaVersion(e.target.value)}
+                      style={{ fontSize: '0.8rem', width: '100%' }}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Install Prompt Text</label>
+                  <textarea
+                    rows={2}
+                    className="form-input"
+                    value={adminPwaInstallPromptText}
+                    onChange={(e) => setAdminPwaInstallPromptText(e.target.value)}
+                    style={{ fontSize: '0.8rem', width: '100%', resize: 'vertical', fontFamily: 'inherit' }}
+                  />
+                </div>
+                <button
+                  onClick={handleSavePwaSettings}
+                  className="gradient-btn"
+                  style={{ width: '100%', padding: '12px', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 700, marginTop: '8px' }}
+                >
+                  Save PWA Settings
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Section: Payment Accounts Manager */}
+          {adminActiveSubTab === 'payment-accounts' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)' }}>Manage Deposit Payment Accounts</h3>
+              
+              {/* Form to Add New Account */}
+              <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <h4 style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--accent-secondary)', margin: 0 }}>➕ Add New Payment Account</h4>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Bank Name (use 'UPI' for UPI accounts)</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={newPaBankName}
+                      onChange={(e) => setNewPaBankName(e.target.value)}
+                      placeholder="e.g. Axis Bank or UPI"
+                      style={{ fontSize: '0.8rem', width: '100%' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Beneficiary / Holder Name</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={newPaBeneficiaryName}
+                      onChange={(e) => setNewPaBeneficiaryName(e.target.value)}
+                      placeholder="e.g. FastPay Settlement"
+                      style={{ fontSize: '0.8rem', width: '100%' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Account Number / UPI ID</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={newPaAccountNumber}
+                      onChange={(e) => setNewPaAccountNumber(e.target.value)}
+                      placeholder="e.g. 912010087654321 or fastpay@ybl"
+                      style={{ fontSize: '0.8rem', width: '100%' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>IFSC Code (optional)</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={newPaIfsc}
+                      onChange={(e) => setNewPaIfsc(e.target.value)}
+                      placeholder="e.g. UTIB0000123"
+                      style={{ fontSize: '0.8rem', width: '100%' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Alternative UPI (optional)</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={newPaUpiId}
+                      onChange={(e) => setNewPaUpiId(e.target.value)}
+                      placeholder="e.g. fastpay@paytm"
+                      style={{ fontSize: '0.8rem', width: '100%' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Upload QR Code (optional)</label>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="form-input"
+                      onChange={(e) => {
+                        const file = e.target.files[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onloadend = () => {
+                            setNewPaQrCode(reader.result);
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                      style={{ fontSize: '0.8rem', width: '100%', padding: '6px' }}
+                    />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <input
+                    type="checkbox"
+                    id="paConcurrentCheck"
+                    checked={newPaAllowConcurrent}
+                    onChange={(e) => setNewPaAllowConcurrent(e.target.checked)}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <label htmlFor="paConcurrentCheck" style={{ fontSize: '0.75rem', color: 'var(--text-primary)', cursor: 'pointer' }}>
+                    Allow Concurrent Allocation (multiple users can use this account at the same time)
+                  </label>
+                </div>
+                <button
+                  onClick={handleAddPaymentAccount}
+                  className="gradient-btn"
+                  style={{ width: '100%', padding: '12px', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 700 }}
+                >
+                  Add Payment Account
+                </button>
+              </div>
+
+              {/* Pool accounts list */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <h4 style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-primary)', margin: '10px 0 0 0' }}>📋 Existing Payment Accounts ({adminVirtualAccounts.length})</h4>
+                {adminVirtualAccounts.length === 0 ? (
+                  <div className="glass-panel" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                    No payment accounts registered in the database.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {adminVirtualAccounts.map((account) => {
+                      const isLockedNow = account.is_locked && account.locked_until && new Date(account.locked_until) > new Date();
+                      return (
+                        <div key={account.id} className="glass-panel" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px', borderLeft: account.is_enabled ? '3px solid var(--success)' : '3px solid var(--error)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div>
+                              <strong style={{ fontSize: '0.9rem', color: 'var(--text-primary)' }}>{account.bank_name}</strong> - <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>{account.beneficiary_name}</span>
+                              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                                Account / UPI: <strong style={{ color: 'var(--text-primary)' }}>{account.account_number}</strong> {account.ifsc && <>• IFSC: <strong>{account.ifsc}</strong></>} {account.upi_id && <>• Alt UPI: <strong>{account.upi_id}</strong></>}
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                              <button
+                                onClick={() => handleTogglePaymentAccountStatus(account.id)}
+                                className="form-input"
+                                style={{
+                                  width: 'auto',
+                                  padding: '4px 10px',
+                                  fontSize: '0.7rem',
+                                  background: account.is_enabled ? 'rgba(0, 184, 148, 0.1)' : 'rgba(255, 118, 117, 0.1)',
+                                  color: account.is_enabled ? 'var(--success)' : 'var(--error)',
+                                  border: account.is_enabled ? '1px solid var(--success)' : '1px solid var(--error)',
+                                  cursor: 'pointer',
+                                  fontWeight: 700
+                                }}
+                              >
+                                {account.is_enabled ? 'Enabled' : 'Disabled'}
+                              </button>
+                              <button
+                                onClick={() => handleDeletePaymentAccount(account.id)}
+                                className="form-input"
+                                style={{
+                                  width: 'auto',
+                                  padding: '4px 10px',
+                                  fontSize: '0.7rem',
+                                  background: 'none',
+                                  color: 'var(--error)',
+                                  border: '1px solid var(--error)',
+                                  cursor: 'pointer',
+                                  fontWeight: 700
+                                }}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', fontSize: '0.75rem', alignItems: 'center' }}>
+                            <div style={{
+                              background: isLockedNow ? 'rgba(253, 203, 110, 0.1)' : 'rgba(0, 184, 148, 0.1)',
+                              color: isLockedNow ? 'var(--gold)' : 'var(--success)',
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              fontWeight: 600
+                            }}>
+                              {isLockedNow ? `🔒 In Use by ${account.locked_by_username || 'user'} (until ${new Date(account.locked_until).toLocaleTimeString()})` : '✅ Available'}
+                            </div>
+
+                            <button
+                              onClick={() => handleTogglePaymentAccountConcurrent(account.id)}
+                              style={{
+                                background: account.allow_concurrent ? 'rgba(108, 92, 231, 0.1)' : 'rgba(255, 255, 255, 0.05)',
+                                color: account.allow_concurrent ? '#a29bfe' : 'var(--text-secondary)',
+                                border: '1px solid var(--glass-border)',
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              👥 Concurrent: {account.allow_concurrent ? 'Allowed' : 'Disallowed'}
+                            </button>
+
+                            {account.qr_code && (
+                              <button
+                                onClick={() => {
+                                  const w = window.open();
+                                  w.document.write(`<img src="${account.qr_code}" style="max-width:100%; max-height:100vh; display:block; margin:auto;">`);
+                                }}
+                                style={{
+                                  background: 'rgba(255, 255, 255, 0.05)',
+                                  border: '1px solid var(--glass-border)',
+                                  padding: '2px 8px',
+                                  borderRadius: '4px',
+                                  cursor: 'pointer',
+                                  color: 'var(--text-primary)'
+                                }}
+                              >
+                                🖼️ View QR Code
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -5002,8 +5875,13 @@ export default function FastPayApp() {
                     required
                   />
                 </div>
-                <button type="submit" className="gradient-btn" style={{ padding: '14px', borderRadius: '10px', fontSize: '1rem' }}>
-                  Request Settlement Transfer
+                <button 
+                  type="submit" 
+                  disabled={withdrawLoading}
+                  className="gradient-btn" 
+                  style={{ padding: '14px', borderRadius: '10px', fontSize: '1rem', opacity: withdrawLoading ? 0.6 : 1, cursor: withdrawLoading ? 'not-allowed' : 'pointer' }}
+                >
+                  {withdrawLoading ? 'Processing Request...' : 'Request Settlement Transfer'}
                 </button>
               </form>
             )}
@@ -5051,7 +5929,13 @@ export default function FastPayApp() {
                   textTransform: 'capitalize',
                   fontWeight: 600
                 }}>
-                  {selectedHistoryItem.status}
+                  {selectedHistoryItem.type === 'withdrawal' ? (
+                    selectedHistoryItem.status === 'completed' ? 'Approved' :
+                    selectedHistoryItem.status === 'failed' ? 'Rejected' :
+                    selectedHistoryItem.status === 'pending' ? 'Pending' : selectedHistoryItem.status
+                  ) : (
+                    selectedHistoryItem.status
+                  )}
                 </span>
               </div>
 
@@ -5070,6 +5954,20 @@ export default function FastPayApp() {
                     <div>Account Number: <strong>{selectedHistoryItem.raw.virtual_account}</strong></div>
                     <div>IFSC: <strong>{selectedHistoryItem.raw.virtual_ifsc}</strong></div>
                     <div>Beneficiary: <strong>{selectedHistoryItem.raw.virtual_beneficiary}</strong></div>
+                  </div>
+                </div>
+              )}
+
+              {selectedHistoryItem.type === 'withdrawal' && (
+                <div style={{ padding: '12px', background: 'var(--bg-tertiary)', borderRadius: '10px', marginTop: '4px' }}>
+                  <div style={{ fontWeight: 600, marginBottom: '6px', color: 'var(--accent-secondary)' }}>Settlement Destination Bank/UPI:</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                    <div>Bank Name: <strong>{selectedHistoryItem.raw.withdrawal_bank_name || 'UPI/Bank'}</strong></div>
+                    <div>Account Holder: <strong>{selectedHistoryItem.raw.withdrawal_account_name || 'N/A'}</strong></div>
+                    <div>Account Number: <strong>{selectedHistoryItem.raw.withdrawal_account_number || 'N/A'}</strong></div>
+                    {selectedHistoryItem.raw.withdrawal_ifsc && <div>IFSC Code: <strong>{selectedHistoryItem.raw.withdrawal_ifsc}</strong></div>}
+                    {selectedHistoryItem.raw.withdrawal_upi_id && <div>UPI ID: <strong>{selectedHistoryItem.raw.withdrawal_upi_id}</strong></div>}
+                    {selectedHistoryItem.raw.rejection_reason && <div style={{ color: 'var(--error)', marginTop: '4px' }}>Rejection Reason: <strong>{selectedHistoryItem.raw.rejection_reason}</strong></div>}
                   </div>
                 </div>
               )}

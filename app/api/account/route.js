@@ -66,6 +66,6 @@ export async function POST(request) {
     });
   } catch (error) {
     console.error('Save bank details error:', error);
-    return NextResponse.json({ error: 'Failed to update bank details.' }, { status: 500 });
+    return NextResponse.json({ error: error.message || 'Failed to update bank details.' }, { status: 500 });
   }
 }

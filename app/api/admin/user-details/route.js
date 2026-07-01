@@ -114,11 +114,21 @@ export async function GET(request) {
       investments: allOrders.map(o => ({
         id: o._id.toString(),
         name: o.scheme_id ? o.scheme_id.name : 'Quick Deposit Scheme',
+        scheme_id: o.scheme_id ? o.scheme_id._id.toString() : null,
         price: o.price,
         daily_income: o.daily_income,
         days_remaining: o.days_remaining,
         status: o.status,
-        created_at: o.created_at
+        created_at: o.created_at,
+        utr: o.utr,
+        screenshot: o.screenshot || null,
+        virtual_account: o.virtual_account_id ? o.virtual_account_id.account_number : null,
+        virtual_bank: o.virtual_account_id ? o.virtual_account_id.bank_name : null,
+        virtual_beneficiary: o.virtual_account_id ? o.virtual_account_id.beneficiary_name : null,
+        virtual_ifsc: o.virtual_account_id ? o.virtual_account_id.ifsc : null,
+        virtual_upi: o.virtual_account_id ? o.virtual_account_id.upi_id : null,
+        virtual_qr_code: o.virtual_account_id ? o.virtual_account_id.qr_code : null,
+        rejection_reason: o.rejection_reason || ''
       })),
       referrals: {
         count: invitedUsers.length,

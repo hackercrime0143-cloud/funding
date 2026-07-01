@@ -2,18 +2,34 @@ import { NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
 import { Order, Scheme, Transaction, VirtualAccount } from '@/lib/models';
 import { getSessionFromCookies } from '@/lib/auth';
+import { saveBase64Image } from '@/lib/upload';
 
 // Helper to auto-cancel pending orders that are drafts (start with DRAFT-) older than 15 minutes
 async function autoCancelPendingOrders() {
   const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
-  await Order.updateMany(
-    {
-      status: 'pending',
-      utr: { $regex: /^DRAFT-/ },
-      created_at: { $lt: fifteenMinutesAgo }
-    },
-    { status: 'cancelled' }
-  );
+  
+  const ordersToCancel = await Order.find({
+    status: 'pending',
+    utr: { $regex: /^DRAFT-/ },
+    created_at: { $lt: fifteenMinutesAgo }
+  });
+
+  if (ordersToCancel.length > 0) {
+    const orderIds = ordersToCancel.map(o => o._id);
+    const vaIds = ordersToCancel.map(o => o.virtual_account_id).filter(Boolean);
+
+    await Order.updateMany(
+      { _id: { $in: orderIds } },
+      { status: 'cancelled' }
+    );
+
+    if (vaIds.length > 0) {
+      await VirtualAccount.updateMany(
+        { _id: { $in: vaIds } },
+        { $set: { is_locked: false, locked_until: null, locked_by_user_id: null } }
+      );
+    }
+  }
 }
 
 // Fetch user's orders
@@ -51,7 +67,8 @@ export async function GET(request) {
       virtual_bank: o.virtual_account_id ? o.virtual_account_id.bank_name : null,
       virtual_beneficiary: o.virtual_account_id ? o.virtual_account_id.beneficiary_name : null,
       virtual_ifsc: o.virtual_account_id ? o.virtual_account_id.ifsc : null,
-      virtual_upi: o.virtual_account_id ? o.virtual_account_id.upi_id : null
+      virtual_upi: o.virtual_account_id ? o.virtual_account_id.upi_id : null,
+      virtual_qr_code: o.virtual_account_id ? o.virtual_account_id.qr_code : null
     }));
 
     return NextResponse.json({ success: true, orders });
@@ -167,23 +184,59 @@ export async function POST(request) {
     const lockDurationMs = 15 * 60 * 1000;
     const lockUntil = new Date(now.getTime() + lockDurationMs);
 
-    let virtualAcc = await VirtualAccount.findOne({
-      $or: [
-        { is_locked: false },
-        { locked_until: { $lt: now } },
-        { locked_by_user_id: session.id }
-      ]
-    });
+    let virtualAcc = null;
 
-    if (!virtualAcc) {
-      virtualAcc = await VirtualAccount.findOne().sort({ locked_until: 1 });
+    // 1. Check if the user already has a pending order with an assigned account.
+    // If so, reuse that account to keep the same details for this user's pending payments.
+    const existingOrder = await Order.findOne({
+      user_id: session.id,
+      status: 'pending',
+      virtual_account_id: { $ne: null }
+    }).populate('virtual_account_id');
+
+    if (existingOrder && existingOrder.virtual_account_id && existingOrder.virtual_account_id.is_enabled !== false) {
+      virtualAcc = existingOrder.virtual_account_id;
     }
 
-    if (virtualAcc) {
-      virtualAcc.is_locked = true;
-      virtualAcc.locked_until = lockUntil;
-      virtualAcc.locked_by_user_id = session.id;
-      await virtualAcc.save();
+    if (!virtualAcc) {
+      // 2. Find enabled accounts that are available (not locked, locked expired, locked by current user, or allow concurrent)
+      virtualAcc = await VirtualAccount.findOne({
+        is_enabled: { $ne: false },
+        $or: [
+          { is_locked: false },
+          { locked_until: { $lt: now } },
+          { locked_by_user_id: session.id },
+          { allow_concurrent: true }
+        ]
+      }).sort({ last_assigned_at: 1 }); // Round-robin: oldest assigned first
+    }
+
+    // 3. If no available account, check if any enabled account allows concurrent usage
+    if (!virtualAcc) {
+      virtualAcc = await VirtualAccount.findOne({
+        is_enabled: { $ne: false },
+        allow_concurrent: true
+      }).sort({ last_assigned_at: 1 });
+    }
+
+    // If still no account is available, return an error (prevent sharing locked accounts)
+    if (!virtualAcc) {
+      return NextResponse.json({
+        error: 'No payment accounts are currently available. Please try again in a few minutes.'
+      }, { status: 409 });
+    }
+
+    // Lock and save
+    virtualAcc.is_locked = true;
+    virtualAcc.locked_until = lockUntil;
+    virtualAcc.locked_by_user_id = session.id;
+    virtualAcc.last_assigned_at = now;
+    await virtualAcc.save();
+
+    // Save screenshot to disk if provided
+    let screenshotUrl = null;
+    if (screenshot) {
+      screenshotUrl = await saveBase64Image(screenshot);
     }
 
     // Create order
@@ -196,8 +249,8 @@ export async function POST(request) {
       days_remaining: scheme.days,
       status: initialStatus,
       utr: finalUtr,
-      screenshot: screenshot || null,
-      virtual_account_id: virtualAcc ? virtualAcc._id : null
+      screenshot: screenshotUrl,
+      virtual_account_id: virtualAcc._id
     });
 
     const fallbackVa = {
@@ -218,7 +271,8 @@ export async function POST(request) {
         bankName: virtualAcc.bank_name,
         beneficiaryName: virtualAcc.beneficiary_name,
         ifsc: virtualAcc.ifsc,
-        upiId: virtualAcc.upi_id || "fastpay@upi"
+        upiId: virtualAcc.upi_id || "fastpay@upi",
+        qrCode: virtualAcc.qr_code || ""
       } : fallbackVa
     });
   } catch (error) {
@@ -256,6 +310,12 @@ export async function PATCH(request) {
 
     if (status) {
       order.status = status;
+      if (['cancelled', 'failed', 'rejected', 'completed'].includes(status) && order.virtual_account_id) {
+        await VirtualAccount.updateOne(
+          { _id: order.virtual_account_id },
+          { $set: { is_locked: false, locked_until: null, locked_by_user_id: null } }
+        );
+      }
     }
 
     if (utr) {
@@ -274,7 +334,7 @@ export async function PATCH(request) {
     }
 
     if (screenshot) {
-      order.screenshot = screenshot;
+      order.screenshot = await saveBase64Image(screenshot);
     }
 
 

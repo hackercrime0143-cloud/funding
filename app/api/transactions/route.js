@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
 import { User, Transaction, VirtualAccount, BankDetails, Order, Scheme } from '@/lib/models';
 import { getSessionFromCookies } from '@/lib/auth';
+import { saveBase64Image } from '@/lib/upload';
 
 // Fetch user transactions
 export async function GET(request) {
@@ -30,7 +31,15 @@ export async function GET(request) {
       virtual_beneficiary: t.virtual_account_id ? t.virtual_account_id.beneficiary_name : null,
       virtual_ifsc: t.virtual_account_id ? t.virtual_account_id.ifsc : null,
       utr: t.utr || null,
-      screenshot: t.screenshot || null
+      screenshot: t.screenshot || null,
+      withdrawal_bank_name: t.withdrawal_bank_name || null,
+      withdrawal_account_name: t.withdrawal_account_name || null,
+      withdrawal_account_number: t.withdrawal_account_number || null,
+      withdrawal_ifsc: t.withdrawal_ifsc || null,
+      withdrawal_upi_id: t.withdrawal_upi_id || null,
+      wallet_balance_at_request: t.wallet_balance_at_request || 0,
+      rejection_reason: t.rejection_reason || '',
+      resolved_at: t.resolved_at || null
     }));
 
     return NextResponse.json({ success: true, transactions });
@@ -174,6 +183,25 @@ export async function POST(request) {
         return NextResponse.json({ error: 'Insufficient balance for this withdrawal.' }, { status: 400 });
       }
 
+      const ifscPrefix = bankLinked.ifsc.substring(0, 4).toUpperCase();
+      const bankMapping = {
+        'SBIN': 'State Bank of India',
+        'HDFC': 'HDFC Bank',
+        'ICIC': 'ICICI Bank',
+        'UTIB': 'Axis Bank',
+        'BARB': 'Bank of Baroda',
+        'PUNB': 'Punjab National Bank',
+        'KKBK': 'Kotak Mahindra Bank',
+        'IBKL': 'IDBI Bank',
+        'YESB': 'Yes Bank',
+        'BKID': 'Bank of India',
+        'CNRB': 'Canara Bank',
+        'UBIN': 'Union Bank of India'
+      };
+      const bankName = bankMapping[ifscPrefix] || `${ifscPrefix} Bank`;
+
+      const balanceBefore = user.wallet_balance;
+
       // Deduct balance
       user.wallet_balance -= reqAmount;
       await user.save();
@@ -183,7 +211,15 @@ export async function POST(request) {
         user_id: session.id,
         type: 'withdrawal',
         amount: -reqAmount,
-        status: 'pending'
+        status: 'pending',
+        user_username: user.username,
+        user_phone: user.phone,
+        withdrawal_bank_name: bankName,
+        withdrawal_account_name: bankLinked.account_name,
+        withdrawal_account_number: bankLinked.account_number,
+        withdrawal_ifsc: bankLinked.ifsc,
+        withdrawal_upi_id: bankLinked.upi_id,
+        wallet_balance_at_request: balanceBefore
       });
 
       return NextResponse.json({
@@ -238,7 +274,7 @@ export async function PATCH(request) {
     }
 
     tx.utr = utr.trim();
-    tx.screenshot = screenshot;
+    tx.screenshot = await saveBase64Image(screenshot);
     await tx.save();
 
     // Custom Deposit Scheme auto-creation:

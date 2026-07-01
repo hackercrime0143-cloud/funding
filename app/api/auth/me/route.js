@@ -77,13 +77,42 @@ export async function GET(request) {
     // Get linking status
     const bankDetails = await BankDetails.findOne({ user_id: session.id });
 
-    // Get APK download URL
-    const apkSetting = await Settings.findOne({ key: 'apk_download_url' });
-    const apkDownloadUrl = apkSetting ? apkSetting.value : '';
+    // Get PWA and APK settings
+    const settingsList = await Settings.find({
+      key: { $in: [
+        'apk_download_url',
+        'pwa_name',
+        'pwa_short_name',
+        'pwa_theme_color',
+        'pwa_background_color',
+        'pwa_icon',
+        'pwa_splash_screen',
+        'pwa_install_prompt_text',
+        'pwa_version'
+      ] }
+    });
+
+    const settingsMap = {};
+    settingsList.forEach(s => {
+      settingsMap[s.key] = s.value;
+    });
+
+    const apkDownloadUrl = settingsMap['apk_download_url'] || '';
+    const pwaSettings = {
+      name: settingsMap['pwa_name'] || 'FastPay',
+      shortName: settingsMap['pwa_short_name'] || 'FastPay',
+      themeColor: settingsMap['pwa_theme_color'] || '#000000',
+      backgroundColor: settingsMap['pwa_background_color'] || '#000000',
+      icon: settingsMap['pwa_icon'] || '/icon-192.png',
+      splashScreen: settingsMap['pwa_splash_screen'] || '/icon-512.png',
+      installPromptText: settingsMap['pwa_install_prompt_text'] || 'Install FastPay to your device home screen for a native, fast, and full-screen mobile app experience.',
+      version: settingsMap['pwa_version'] || '1.0.0'
+    };
 
     return NextResponse.json({
       success: true,
       apkDownloadUrl,
+      pwaSettings,
       user: {
         id: user._id.toString(),
         username: user.username,

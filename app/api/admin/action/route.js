@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
 import { User, Scheme, Transaction, VirtualAccount, Order, Settings } from '@/lib/models';
 import { getSessionFromCookies } from '@/lib/auth';
+import { saveBase64Image } from '@/lib/upload';
 
 export async function POST(request) {
   try {
@@ -96,6 +97,7 @@ export async function POST(request) {
       // Complete the transaction
       tx.status = 'completed';
       tx.updated_at = new Date();
+      tx.resolved_at = new Date();
       await tx.save();
 
       // If it's a deposit, check if it was a Custom Scheme deposit or a normal deposit
@@ -127,7 +129,7 @@ export async function POST(request) {
     } 
     
     else if (action === 'rejectTransaction') {
-      const { transactionId } = payload;
+      const { transactionId, rejectionReason } = payload;
       if (!transactionId) {
         return NextResponse.json({ error: 'Transaction ID is required.' }, { status: 400 });
       }
@@ -144,6 +146,8 @@ export async function POST(request) {
       // Fail the transaction
       tx.status = 'failed';
       tx.updated_at = new Date();
+      tx.resolved_at = new Date();
+      tx.rejection_reason = rejectionReason || '';
       await tx.save();
 
       // If it's a deposit & custom scheme range, reject the custom order
@@ -214,6 +218,86 @@ export async function POST(request) {
         { upsert: true, new: true }
       );
       return NextResponse.json({ success: true, message: 'APK download link updated successfully!' });
+    }
+
+    else if (action === 'savePwaSettings') {
+      const { name, shortName, themeColor, backgroundColor, icon, splashScreen, installPromptText, version } = payload;
+      
+      const iconUrl = icon ? await saveBase64Image(icon) : undefined;
+      const splashScreenUrl = splashScreen ? await saveBase64Image(splashScreen) : undefined;
+
+      const updates = [
+        { key: 'pwa_name', value: name },
+        { key: 'pwa_short_name', value: shortName },
+        { key: 'pwa_theme_color', value: themeColor },
+        { key: 'pwa_background_color', value: backgroundColor },
+        { key: 'pwa_icon', value: iconUrl },
+        { key: 'pwa_splash_screen', value: splashScreenUrl },
+        { key: 'pwa_install_prompt_text', value: installPromptText },
+        { key: 'pwa_version', value: version }
+      ];
+
+      for (const update of updates) {
+        if (update.value !== undefined) {
+          await Settings.findOneAndUpdate(
+            { key: update.key },
+            { value: String(update.value).trim() },
+            { upsert: true, new: true }
+          );
+        }
+      }
+
+      return NextResponse.json({ success: true, message: 'PWA settings updated successfully!' });
+    }
+
+    else if (action === 'addPaymentAccount') {
+      const { bankName, beneficiaryName, accountNumber, ifsc, upiId, qrCode, allowConcurrent } = payload;
+      if (!beneficiaryName || !accountNumber) {
+        return NextResponse.json({ error: 'Beneficiary Name and Account/UPI are required.' }, { status: 400 });
+      }
+
+      let qrCodeUrl = '';
+      if (qrCode) {
+        qrCodeUrl = await saveBase64Image(qrCode);
+      }
+
+      await VirtualAccount.create({
+        bank_name: bankName || 'UPI',
+        beneficiary_name: beneficiaryName,
+        account_number: accountNumber,
+        ifsc: ifsc || '',
+        upi_id: upiId || '',
+        qr_code: qrCodeUrl,
+        allow_concurrent: !!allowConcurrent,
+        is_enabled: true,
+        last_assigned_at: new Date()
+      });
+
+      return NextResponse.json({ success: true, message: 'Payment account added successfully!' });
+    }
+
+    else if (action === 'togglePaymentAccountStatus') {
+      const { id } = payload;
+      const account = await VirtualAccount.findById(id);
+      if (!account) return NextResponse.json({ error: 'Account not found.' }, { status: 404 });
+      account.is_enabled = !account.is_enabled;
+      await account.save();
+      return NextResponse.json({ success: true, message: `Account status updated to ${account.is_enabled ? 'Enabled' : 'Disabled'}.` });
+    }
+
+    else if (action === 'togglePaymentAccountConcurrent') {
+      const { id } = payload;
+      const account = await VirtualAccount.findById(id);
+      if (!account) return NextResponse.json({ error: 'Account not found.' }, { status: 404 });
+      account.allow_concurrent = !account.allow_concurrent;
+      await account.save();
+      return NextResponse.json({ success: true, message: `Concurrent usage status updated to ${account.allow_concurrent ? 'Allowed' : 'Disallowed'}.` });
+    }
+
+    else if (action === 'deletePaymentAccount') {
+      const { id } = payload;
+      await VirtualAccount.deleteOne({ _id: id });
+      return NextResponse.json({ success: true, message: 'Payment account deleted successfully.' });
     }
 
     return NextResponse.json({ error: 'Invalid admin action.' }, { status: 400 });
