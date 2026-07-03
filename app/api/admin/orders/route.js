@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
 import { User, Order } from '@/lib/models';
 import { getSessionFromCookies } from '@/lib/auth';
+import mongoose from 'mongoose';
 
 export async function GET(request) {
   try {
@@ -28,7 +29,29 @@ export async function GET(request) {
 
     const query = {};
 
-    if (status) {
+    // Search by User credentials (username, phone, support ID, or User ID)
+    if (search.trim() !== '') {
+      const searchStr = search.trim();
+      const rx = new RegExp(searchStr, 'i');
+      
+      const userQuery = {
+        $or: [
+          { username: rx },
+          { phone: rx },
+          { support_id: rx }
+        ]
+      };
+
+      if (mongoose.Types.ObjectId.isValid(searchStr)) {
+        userQuery.$or.push({ _id: searchStr });
+      }
+
+      const matchedUsers = await User.find(userQuery).select('_id');
+      const userIds = matchedUsers.map(u => u._id);
+      query.user_id = { $in: userIds };
+      
+      // The search works globally across all statuses, so ignore the status filter when searching
+    } else if (status) {
       if (status === 'pending') {
         query.status = 'confirmation_pending';
       } else if (status === 'cancelled') {
@@ -36,20 +59,6 @@ export async function GET(request) {
       } else {
         query.status = status;
       }
-    }
-
-    // Search by User credentials (username, phone, support ID)
-    if (search.trim() !== '') {
-      const rx = new RegExp(search.trim(), 'i');
-      const matchedUsers = await User.find({
-        $or: [
-          { username: rx },
-          { phone: rx },
-          { support_id: rx }
-        ]
-      }).select('_id');
-      const userIds = matchedUsers.map(u => u._id);
-      query.user_id = { $in: userIds };
     }
 
     const total = await Order.countDocuments(query);

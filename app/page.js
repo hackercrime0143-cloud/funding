@@ -178,6 +178,9 @@ export default function FastPayApp() {
   const [showForceUpdate, setShowForceUpdate] = useState(false);
   const [serverAppVersion, setServerAppVersion] = useState('');
 
+  // Track image load errors to show "No Screenshot Uploaded" instead of broken images
+  const [brokenImages, setBrokenImages] = useState({});
+
 
   const [adminVirtualAccounts, setAdminVirtualAccounts] = useState([]);
   const [newPaBankName, setNewPaBankName] = useState('Axis Bank');
@@ -361,48 +364,94 @@ export default function FastPayApp() {
       }
     }
   }, []);
+  const lastSeenTxIdsRef = useRef(new Set());
 
-  const promotionalSlides = [
-    {
-      title: "🎁 First Deposit Bonus",
-      desc: "Complete your first deposit and instantly receive an extra ₹50 Welcome Bonus.",
-      badge: "₹50 Extra"
-    },
-    {
-      title: "⚡ Medium Volume Reward",
-      desc: "Purchase orders worth a total of ₹5,000 or complete 10 total order purchases to receive an extra ₹150 Bonus.",
-      badge: "₹150 Extra"
-    },
-    {
-      title: "🔥 High Volume Reward",
-      desc: "Purchase orders worth a total of ₹10,000 or complete 25 total order purchases to receive an extra ₹500 Bonus.",
-      badge: "₹500 Extra"
-    },
-    {
-      title: "🚀 Multi-Buyer Bonus (5k)",
-      desc: "Purchase 2 Task Schemes worth ₹5,000 each and receive an extra ₹200 Bonus.",
-      badge: "₹200 Extra"
-    },
-    {
-      title: "💎 Multi-Buyer Bonus (10k)",
-      desc: "Purchase 4 Task Schemes worth ₹10,000 each and receive an extra ₹1,000 Bonus.",
-      badge: "₹1k Extra"
-    }
-  ];
-
+  // Real PWA / Push Notification for Admin Phone (Deposit / Withdrawal requests)
   useEffect(() => {
-    if (activeTab === 'home') {
-      const interval = setInterval(() => {
-        setActiveBannerSlide(prev => (prev + 1) % 5);
-      }, 4500);
-      return () => clearInterval(interval);
+    if (!user || user.role !== 'admin') return;
+
+    // Request permission from the admin's device
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      if (Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
     }
-  }, [activeTab]);
+
+    // Populate initial seen IDs so we don't alert on existing ones on page load
+    const initSeen = async () => {
+      try {
+        const res = await fetch('/api/admin/transactions?page=1&limit=50&filter=pending');
+        const data = await res.json();
+        if (data.success && data.transactions) {
+          data.transactions.forEach(t => lastSeenTxIdsRef.current.add(t.id));
+        }
+      } catch (e) {
+        console.error("Error initializing seen transactions:", e);
+      }
+    };
+    initSeen();
+
+    // Background polling loop
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch('/api/admin/transactions?page=1&limit=20&filter=pending');
+        const data = await res.json();
+        if (data.success && data.transactions) {
+          for (const t of data.transactions) {
+            if (!lastSeenTxIdsRef.current.has(t.id)) {
+              lastSeenTxIdsRef.current.add(t.id);
+
+              // Notify the admin immediately on new deposit or withdrawal requests
+              if (t.type === 'deposit' || t.type === 'withdrawal') {
+                const actionName = t.type === 'deposit' ? 'Deposit' : 'Withdrawal';
+                const title = `⚠️ New ${actionName} Request`;
+                const timeStr = new Date(t.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                const bodyText = `Username: ${t.user_name}\nID: ${t.user_id}\nAmount: ₹${Math.abs(t.amount)}\nAction: ${actionName}\nTime: ${timeStr}`;
+
+                if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+                  if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+                    navigator.serviceWorker.ready.then(reg => {
+                      reg.showNotification(title, {
+                        body: bodyText,
+                        icon: '/icon-192.png',
+                        badge: '/icon-192.png',
+                        tag: `tx-${t.id}`,
+                        renotify: true
+                      });
+                    });
+                  } else {
+                    new Notification(title, { body: bodyText, icon: '/icon-192.png' });
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Error polling for admin push notifications:", err);
+      }
+    }, 10000); // 10s poll
+
+    return () => clearInterval(interval);
+  }, [user]);
 
   const fetchSession = async () => {
     try {
       const res = await fetch('/api/auth/me');
       const data = await res.json();
+      
+      // Perform Force Update Check on ALL responses (200, 401, 403, etc.)
+      if (data.pwaSettings?.version) {
+        const sv = data.pwaSettings.version;
+        setServerAppVersion(sv);
+        const localVersion = localStorage.getItem('fp_app_version');
+        if (localVersion && localVersion !== sv) {
+          setShowForceUpdate(true);
+        } else if (!localVersion) {
+          localStorage.setItem('fp_app_version', sv);
+        }
+      }
+
       if (data.success) {
         setUser(data.user);
         if (data.apkDownloadUrl) {
@@ -440,20 +489,6 @@ export default function FastPayApp() {
           setAccountName(data.user.bankDetails.account_name);
           setIfsc(data.user.bankDetails.ifsc);
           setUpiId(data.user.bankDetails.upi_id);
-        }
-
-        // Force Update Check: compare server version with locally stored version
-        if (data.pwaSettings?.version) {
-          const sv = data.pwaSettings.version;
-          setServerAppVersion(sv);
-          const localVersion = localStorage.getItem('fp_app_version');
-          if (localVersion && localVersion !== sv) {
-            // User has visited before and a new version is available
-            setShowForceUpdate(true);
-          } else if (!localVersion) {
-            // First visit — store version, no update needed
-            localStorage.setItem('fp_app_version', sv);
-          }
         }
 
         // Request notification permission
@@ -1911,70 +1946,7 @@ export default function FastPayApp() {
     );
   }
 
-  const renderTaskCard = (taskId, title, desc, reward, prog, isVolumeTask = false) => {
-    if (!prog) return null;
 
-    let progressText = "";
-    let percent = 0;
-
-    if (isVolumeTask) {
-      const spentPercent = Math.min((prog.spentCurrent / prog.spentTarget) * 100, 100);
-      const countPercent = Math.min((prog.countCurrent / prog.countTarget) * 100, 100);
-      percent = Math.max(spentPercent, countPercent);
-
-      progressText = `Volume: ₹${prog.spentCurrent}/${prog.spentTarget} OR Count: ${prog.countCurrent}/${prog.countTarget}`;
-    } else {
-      percent = Math.min((prog.current / prog.target) * 100, 100);
-      progressText = `Progress: ${prog.current}/${prog.target}`;
-    }
-
-    return (
-      <div className="glass-panel" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <h4 style={{ fontWeight: 700, fontSize: '0.95rem' }}>{title}</h4>
-            <span style={{ fontSize: '0.75rem', color: 'var(--success)', fontWeight: 700, background: 'rgba(0,184,148,0.1)', padding: '2px 8px', borderRadius: '4px', display: 'inline-block', marginTop: '4px' }}>
-              {reward}
-            </span>
-          </div>
-
-          <div>
-            {prog.claimed ? (
-              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Claimed ✓</span>
-            ) : (
-              <button
-                disabled={!prog.isCompleted}
-                onClick={() => handleClaimTask(taskId)}
-                className="gradient-btn"
-                style={{
-                  padding: '8px 16px',
-                  borderRadius: '6px',
-                  fontSize: '0.8rem',
-                  opacity: prog.isCompleted ? 1 : 0.4,
-                  cursor: prog.isCompleted ? 'pointer' : 'not-allowed'
-                }}
-              >
-                Claim
-              </button>
-            )}
-          </div>
-        </div>
-
-        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
-          {desc}
-        </p>
-
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>
-            <span>{progressText}</span>
-            <span>{percent.toFixed(0)}%</span>
-          </div>
-          <div style={{ width: '100%', height: '6px', background: 'var(--bg-tertiary)', borderRadius: '3px', overflow: 'hidden' }}>
-            <div style={{ width: `${percent}%`, height: '100%', background: '#000000', borderRadius: '3px', transition: 'width 0.3s' }} />
-          </div>        </div>
-      </div>
-    );
-  };
 
   // Rendering Helper: Dashboard Sub-tabs
   return (
@@ -2017,58 +1989,6 @@ export default function FastPayApp() {
       {activeTab === 'home' && (
         <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
-          {/* Sliding Promotional Banner */}
-          <div className="glass-panel" style={{
-            padding: '16px',
-            background: 'linear-gradient(135deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)',
-            border: '1px solid rgba(255,255,255,0.08)',
-            position: 'relative',
-            overflow: 'hidden',
-            borderRadius: '12px'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', fontSize: '0.75rem', color: 'var(--gold)' }}>
-              <span>📅 Event Duration: <strong>1 July - 30 July</strong></span>
-              <span style={{ background: 'rgba(253, 203, 110, 0.1)', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>Active Event</span>
-            </div>
-
-            {/* Slider Content Wrapper */}
-            <div style={{ minHeight: '80px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-              {promotionalSlides.map((slide, idx) => {
-                if (idx !== activeBannerSlide) return null;
-                return (
-                  <div key={idx} className="animate-fade-in">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                      <h4 style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)' }}>{slide.title}</h4>
-                      <span style={{ fontSize: '0.75rem', background: 'rgba(0, 184, 148, 0.1)', color: 'var(--success)', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>
-                        {slide.badge}
-                      </span>
-                    </div>
-                    <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
-                      {slide.desc}
-                    </p>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Dot Indicators */}
-            <div style={{ display: 'flex', justifyContent: 'center', gap: '6px', marginTop: '10px' }}>
-              {promotionalSlides.map((_, idx) => (
-                <div
-                  key={idx}
-                  onClick={() => setActiveBannerSlide(idx)}
-                  style={{
-                    width: '6px',
-                    height: '6px',
-                    borderRadius: '50%',
-                    background: idx === activeBannerSlide ? 'var(--accent-secondary)' : 'var(--glass-border)',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s'
-                  }}
-                />
-              ))}
-            </div>
-          </div>
 
           {/* Wallets & Profits Grid */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
@@ -3297,10 +3217,11 @@ export default function FastPayApp() {
                                   <td style={{ padding: '6px 4px' }}>₹{d.amount.toFixed(2)}</td>
                                   <td style={{ padding: '6px 4px', fontFamily: 'monospace' }}>{d.utr || 'N/A'}</td>
                                   <td style={{ padding: '6px 4px' }}>
-                                    {d.screenshot && d.screenshot !== 'null' && d.screenshot !== '' ? (
+                                    {d.screenshot && d.screenshot.startsWith('/') && !brokenImages[d.id] ? (
                                       <img
                                         src={d.screenshot}
                                         alt="Proof"
+                                        onError={() => setBrokenImages(prev => ({ ...prev, [d.id]: true }))}
                                         onClick={(e) => {
                                           e.stopPropagation();
                                           const w = window.open();
@@ -3820,13 +3741,14 @@ export default function FastPayApp() {
                   {/* Right Column: Screenshot & QR */}
                   <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
                     <h4 style={{ fontWeight: 600, color: 'var(--success)', fontSize: '0.95rem', borderBottom: '1px solid var(--glass-border)', paddingBottom: '8px' }}>Uploaded Proof & QR Code</h4>
-                    {adminSelectedOrder.screenshot ? (
+                    {adminSelectedOrder.screenshot && adminSelectedOrder.screenshot.startsWith('/') && !brokenImages[adminSelectedOrder.id] ? (
                       <div>
                         <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Payment Screenshot:</span>
                         <div style={{ border: '1px solid var(--glass-border)', borderRadius: '8px', overflow: 'hidden', cursor: 'pointer', textAlign: 'center' }}>
                           <img
                             src={adminSelectedOrder.screenshot}
                             alt="Receipt"
+                            onError={() => setBrokenImages(prev => ({ ...prev, [adminSelectedOrder.id]: true }))}
                             onClick={() => {
                               const w = window.open();
                               w.document.write(`<img src="${adminSelectedOrder.screenshot}" style="max-width:100%; max-height:100vh; display:block; margin:auto;">`);
@@ -4283,12 +4205,13 @@ export default function FastPayApp() {
                                   <div>Submitted UTR: <strong style={{ color: 'var(--text-primary)', fontSize: '0.85rem' }}>{item.utr}</strong></div>
                                   <div>Date: {new Date(item.created_at).toLocaleString()}</div>
                                 </div>
-                                {item.screenshot ? (
+                                {item.screenshot && item.screenshot.startsWith('/') && !brokenImages[item.id] ? (
                                   <div style={{ marginTop: '10px', marginBottom: '12px' }}>
                                     <span style={{ fontSize: '0.75rem', color: '#a0a8c0', display: 'block', marginBottom: '4px' }}>Submitted Receipt:</span>
                                     <img
                                       src={item.screenshot}
                                       alt="Receipt"
+                                      onError={() => setBrokenImages(prev => ({ ...prev, [item.id]: true }))}
                                       onClick={() => {
                                         const w = window.open();
                                         w.document.write(`<img src="${item.screenshot}" style="max-width:100%; max-height:100vh; display:block; margin:auto;">`);
@@ -4362,12 +4285,13 @@ export default function FastPayApp() {
                                   Submitted UTR: <strong style={{ color: 'var(--text-primary)', fontSize: '0.85rem' }}>{item.utr}</strong>
                                 </div>
                               )}
-                              {item.screenshot ? (
+                              {item.screenshot && item.screenshot.startsWith('/') && !brokenImages[item.id] ? (
                                 <div style={{ marginTop: '10px', marginBottom: '12px' }}>
                                   <span style={{ fontSize: '0.75rem', color: '#a0a8c0', display: 'block', marginBottom: '4px' }}>Submitted Receipt:</span>
                                   <img
                                     src={item.screenshot}
                                     alt="Receipt"
+                                    onError={() => setBrokenImages(prev => ({ ...prev, [item.id]: true }))}
                                     onClick={() => {
                                       const w = window.open();
                                       w.document.write(`<img src="${item.screenshot}" style="max-width:100%; max-height:100vh; display:block; margin:auto;">`);
@@ -4442,6 +4366,25 @@ export default function FastPayApp() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <h3 style={{ fontSize: '1.1rem', fontWeight: 600 }}>Verify Scheme Purchases</h3>
 
+              {/* Search Bar */}
+              <div style={{ position: 'relative', marginBottom: '6px' }}>
+                <input
+                  type="text"
+                  placeholder="🔍 Search by Username or User ID..."
+                  value={adminSearchQuery}
+                  onChange={(e) => { setAdminSearchQuery(e.target.value); setOrdersPage(1); }}
+                  style={{
+                    width: '100%',
+                    padding: '10px 14px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--glass-border)',
+                    background: 'var(--bg-secondary)',
+                    color: 'var(--text-primary)',
+                    fontSize: '0.85rem'
+                  }}
+                />
+              </div>
+
               {/* Sub-Filters Selector */}
               <div style={{ display: 'flex', gap: '6px', marginBottom: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
                 {[
@@ -4475,7 +4418,7 @@ export default function FastPayApp() {
                 if (filtered.length === 0) {
                   return (
                     <div className="glass-panel" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-                      No orders match this filter.
+                      No orders match this filter or search.
                     </div>
                   );
                 }
@@ -4484,6 +4427,18 @@ export default function FastPayApp() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                     {filtered.map((order) => {
                       const isExpanded = adminExpandedOrderId === order.id;
+                      
+                      // Calculate profit and remaining time details
+                      const totalDays = order.daily_income > 0 ? Math.round(order.total_payout / order.daily_income) : 3;
+                      const elapsedDays = Math.max(0, totalDays - order.days_remaining);
+                      const currentProfit = order.daily_income * elapsedDays;
+
+                      const purchaseDate = new Date(order.created_at);
+                      const maturityDate = new Date(purchaseDate.getTime() + totalDays * 24 * 60 * 60 * 1000);
+                      const remainMs = Math.max(0, maturityDate.getTime() - Date.now());
+                      const remainH = Math.floor(remainMs / 3600000);
+                      const remainM = Math.floor((remainMs % 3600000) / 60000);
+
                       return (
                         <div
                           key={order.id}
@@ -4519,7 +4474,12 @@ export default function FastPayApp() {
                           </div>
 
                           <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                            User: <strong>{order.user_name}</strong> ({order.user_phone})
+                            User: <strong>{order.user_name}</strong> ({order.user_phone}) • ID: <span style={{ fontFamily: 'monospace' }}>{order.user_id}</span>
+                          </div>
+
+                          <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                            Profit: <strong style={{ color: 'var(--success)' }}>₹{currentProfit.toFixed(2)}</strong> • 
+                            Remaining: <strong>{order.days_remaining}d</strong> ({remainH}h {remainM}m left)
                           </div>
 
                           {isExpanded ? (
@@ -4537,13 +4497,14 @@ export default function FastPayApp() {
                               </div>
 
                               {/* Screenshot displaying */}
-                              {order.screenshot ? (
+                              {order.screenshot && order.screenshot.startsWith('/') && !brokenImages[order.id] ? (
                                 <div style={{ marginTop: '10px', marginBottom: '12px' }}>
                                   <span style={{ fontSize: '0.75rem', color: '#a0a8c0', display: 'block', marginBottom: '4px' }}>Submitted Receipt Screenshot:</span>
                                   <div style={{ position: 'relative', width: '100%', maxHeight: '180px', overflow: 'hidden', borderRadius: '8px', border: '1px solid #202736', cursor: 'pointer' }}>
                                     <img
                                       src={order.screenshot}
                                       alt="Payment Receipt"
+                                      onError={() => setBrokenImages(prev => ({ ...prev, [order.id]: true }))}
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         const w = window.open();
@@ -4807,29 +4768,30 @@ export default function FastPayApp() {
                                   )}
                                 </div>
 
-                                {order.screenshot ? (
-                                  <div style={{ marginTop: '10px', marginBottom: '12px' }}>
-                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Submitted Receipt Screenshot:</span>
-                                    <div style={{ position: 'relative', width: '100%', maxHeight: '180px', overflow: 'hidden', borderRadius: '6px', border: '1px solid var(--glass-border)', cursor: 'pointer' }}>
-                                      <img
-                                        src={order.screenshot}
-                                        alt="Payment Receipt"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          const w = window.open();
-                                          w.document.write(`<img src="${order.screenshot}" style="max-width:100%; max-height:100vh; display:block; margin:auto;">`);
-                                          w.document.title = "Payment Receipt Screenshot";
-                                        }}
-                                        style={{ width: '100%', objectFit: 'contain', maxHeight: '180px' }}
-                                      />
-                                    </div>
-                                    <span style={{ fontSize: '0.7rem', color: 'var(--accent-secondary)', display: 'block', textAlign: 'center', marginTop: '4px' }}>(Click image to view full receipt)</span>
-                                  </div>
-                                ) : (
-                                  <div style={{ marginTop: '10px', marginBottom: '12px', padding: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '6px', fontSize: '0.85rem', color: 'var(--text-secondary)', textAlign: 'center' }}>
-                                    No Screenshot Uploaded
-                                  </div>
-                                )}
+                                {order.screenshot && order.screenshot.startsWith('/') && !brokenImages[order.id] ? (
+                                   <div style={{ marginTop: '10px', marginBottom: '12px' }}>
+                                     <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Submitted Receipt Screenshot:</span>
+                                     <div style={{ position: 'relative', width: '100%', maxHeight: '180px', overflow: 'hidden', borderRadius: '6px', border: '1px solid var(--glass-border)', cursor: 'pointer' }}>
+                                       <img
+                                         src={order.screenshot}
+                                         alt="Payment Receipt"
+                                         onError={() => setBrokenImages(prev => ({ ...prev, [order.id]: true }))}
+                                         onClick={(e) => {
+                                           e.stopPropagation();
+                                           const w = window.open();
+                                           w.document.write(`<img src="${order.screenshot}" style="max-width:100%; max-height:100vh; display:block; margin:auto;">`);
+                                           w.document.title = "Payment Receipt Screenshot";
+                                         }}
+                                         style={{ width: '100%', objectFit: 'contain', maxHeight: '180px' }}
+                                       />
+                                     </div>
+                                     <span style={{ fontSize: '0.7rem', color: 'var(--accent-secondary)', display: 'block', textAlign: 'center', marginTop: '4px' }}>(Click image to view full receipt)</span>
+                                   </div>
+                                 ) : (
+                                   <div style={{ marginTop: '10px', marginBottom: '12px', padding: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '6px', fontSize: '0.85rem', color: 'var(--text-secondary)', textAlign: 'center' }}>
+                                     No Screenshot Uploaded
+                                   </div>
+                                 )}
 
                                 {order.status === 'pending' && (
                                   <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
@@ -5864,67 +5826,6 @@ export default function FastPayApp() {
                   </div>
                 );
               })
-            )}
-          </div>
-
-          {/* Divider */}
-          <div style={{ borderTop: '1px solid var(--glass-border)', paddingTop: '4px' }}>
-            <h2 style={{ fontSize: '1.1rem', fontWeight: 600 }} className="gradient-text">🎯 Promotional Tasks & Rewards</h2>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-              Complete promotional tasks and targets to claim extra cash rewards! (Limit: 1 claim per task)
-            </p>
-            <div style={{ fontSize: '0.75rem', color: 'var(--gold)', marginTop: '6px', fontWeight: 600 }}>
-              📅 Event Duration: 1 July - 30 July
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-
-            {/* Task 1 */}
-            {renderTaskCard(
-              "task_first_deposit",
-              "🎁 First Deposit Bonus",
-              "Complete your first deposit of any amount. (One-time claim)",
-              "₹50 Reward",
-              tasksProgress?.task_first_deposit
-            )}
-
-            {/* Task 2 */}
-            {renderTaskCard(
-              "task_vol_5000",
-              "⚡ Medium Volume Reward",
-              "Purchase ₹5,000+ total orders OR buy a total of 10 orders. (One-time claim)",
-              "₹150 Reward",
-              tasksProgress?.task_vol_5000,
-              true
-            )}
-
-            {/* Task 3 */}
-            {renderTaskCard(
-              "task_vol_10000",
-              "🔥 High Volume Reward",
-              "Purchase ₹10,000+ total orders OR buy a total of 25 orders. (One-time claim)",
-              "₹500 Reward",
-              tasksProgress?.task_vol_10000,
-              true
-            )}
-
-            {/* Task 4 */}
-            {renderTaskCard(
-              "task_two_5000_orders",
-              "🚀 Multi-Buyer Bonus (5k)",
-              "Buy exactly two schemes of ₹5,000 each. (One-time claim)",
-              "₹200 Reward",
-              tasksProgress?.task_two_5000_orders
-            )}
-
-            {/* Task 5 */}
-            {renderTaskCard(
-              "task_four_10000_orders",
-              "💎 Multi-Buyer Bonus (10k)",
-              "Buy exactly four schemes of ₹10,000 each. (One-time claim)",
-              "₹1,000 Reward",
-              tasksProgress?.task_four_10000_orders
             )}
           </div>
         </div>

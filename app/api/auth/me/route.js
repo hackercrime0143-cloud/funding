@@ -10,7 +10,33 @@ export async function GET(request) {
     const session = getSessionFromCookies(cookieHeader);
 
     if (!session) {
-      return NextResponse.json({ error: 'Unauthorized session.' }, { status: 401 });
+      const settingsList = await Settings.find({
+        key: { $in: [
+          'pwa_name',
+          'pwa_short_name',
+          'pwa_theme_color',
+          'pwa_background_color',
+          'pwa_icon',
+          'pwa_splash_screen',
+          'pwa_install_prompt_text',
+          'pwa_version'
+        ] }
+      });
+      const settingsMap = {};
+      settingsList.forEach(s => {
+        settingsMap[s.key] = s.value;
+      });
+      const pwaSettings = {
+        name: settingsMap['pwa_name'] || 'FastPay',
+        shortName: settingsMap['pwa_short_name'] || 'FastPay',
+        themeColor: settingsMap['pwa_theme_color'] || '#000000',
+        backgroundColor: settingsMap['pwa_background_color'] || '#000000',
+        icon: settingsMap['pwa_icon'] || '/icon-192.png',
+        splashScreen: settingsMap['pwa_splash_screen'] || '/icon-512.png',
+        installPromptText: settingsMap['pwa_install_prompt_text'] || 'Install FastPay to your device home screen for a native, fast, and full-screen mobile app experience.',
+        version: settingsMap['pwa_version'] || '1.0.0'
+      };
+      return NextResponse.json({ error: 'Unauthorized session.', pwaSettings }, { status: 401 });
     }
 
     // Process daily payouts automatically when checking profile
