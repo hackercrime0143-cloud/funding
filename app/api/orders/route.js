@@ -53,6 +53,7 @@ export async function GET(request) {
       id: o._id.toString(),
       user_id: o.user_id.toString(),
       scheme_id: o.scheme_id ? o.scheme_id._id.toString() : null,
+      scheme_id_raw: o.scheme_id ? o.scheme_id._id.toString() : null,
       scheme_name: o.scheme_id ? o.scheme_id.name : 'Unknown Scheme',
       price: o.price,
       daily_income: o.daily_income,
@@ -119,6 +120,26 @@ export async function POST(request) {
         return NextResponse.json({ error: 'Scheme not found.' }, { status: 404 });
       }
       dailyIncome = scheme.price * scheme.daily_return_rate;
+    }
+
+    // --- 24-HOUR SAME-SCHEME COOLDOWN ---
+    // Skip cooldown for custom deposit schemes (they use price not scheme_id)
+    if (schemeId !== 'custom_deposit_scheme' && scheme._id) {
+      const cutoff24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const recentOrder = await Order.findOne({
+        user_id: session.id,
+        scheme_id: scheme._id,
+        status: { $in: ['active', 'expired_pending_match', 'completed', 'confirmation_pending'] },
+        created_at: { $gt: cutoff24h }
+      }).sort({ created_at: -1 });
+
+      if (recentOrder) {
+        const cooldownUntil = new Date(new Date(recentOrder.created_at).getTime() + 24 * 60 * 60 * 1000);
+        return NextResponse.json({
+          error: `You already purchased this scheme. You can buy it again after ${cooldownUntil.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} tomorrow.`,
+          cooldownUntil: cooldownUntil.toISOString()
+        }, { status: 429 });
+      }
     }
 
     if (paymentMethod === 'wallet') {

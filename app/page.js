@@ -20,7 +20,8 @@ import {
   ChevronDown,
   ChevronUp,
   TrendingDown,
-  CheckSquare
+  CheckSquare,
+  Wallet
 } from 'lucide-react';
 
 export default function FastPayApp() {
@@ -167,7 +168,17 @@ export default function FastPayApp() {
   const [showMeProfitDetailsPage, setShowMeProfitDetailsPage] = useState(false);
   const [showPrincipalDetailsPage, setShowPrincipalDetailsPage] = useState(false);
 
-  // Payment Accounts pool state
+  // Wallet Tab: Active Scheme Detail Modal
+  const [selectedWalletScheme, setSelectedWalletScheme] = useState(null);
+
+  // 24-Hour Scheme Cooldowns: { [schemeId]: ISO timestamp of cooldown expiry }
+  const [schemeCooldowns, setSchemeCooldowns] = useState({});
+
+  // Force Update
+  const [showForceUpdate, setShowForceUpdate] = useState(false);
+  const [serverAppVersion, setServerAppVersion] = useState('');
+
+
   const [adminVirtualAccounts, setAdminVirtualAccounts] = useState([]);
   const [newPaBankName, setNewPaBankName] = useState('Axis Bank');
   const [newPaBeneficiaryName, setNewPaBeneficiaryName] = useState('');
@@ -429,6 +440,25 @@ export default function FastPayApp() {
           setAccountName(data.user.bankDetails.account_name);
           setIfsc(data.user.bankDetails.ifsc);
           setUpiId(data.user.bankDetails.upi_id);
+        }
+
+        // Force Update Check: compare server version with locally stored version
+        if (data.pwaSettings?.version) {
+          const sv = data.pwaSettings.version;
+          setServerAppVersion(sv);
+          const localVersion = localStorage.getItem('fp_app_version');
+          if (localVersion && localVersion !== sv) {
+            // User has visited before and a new version is available
+            setShowForceUpdate(true);
+          } else if (!localVersion) {
+            // First visit — store version, no update needed
+            localStorage.setItem('fp_app_version', sv);
+          }
+        }
+
+        // Request notification permission
+        if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+          try { await Notification.requestPermission(); } catch (_) {}
         }
       } else if (res.status === 401 || res.status === 403) {
         // Account deleted or suspended — force logout
@@ -1316,9 +1346,15 @@ export default function FastPayApp() {
           body: JSON.stringify({ schemeId: activeOrderDetails.id || activeOrderDetails._id, paymentMethod: 'wallet' })
         });
         const data = await res.json();
+        if (res.status === 429 && data.cooldownUntil) {
+          setSchemeCooldowns(prev => ({ ...prev, [activeOrderDetails.id || activeOrderDetails._id]: data.cooldownUntil }));
+          setActiveOrderDetails(null);
+          alert(data.error);
+          return;
+        }
         if (data.success) {
           alert(data.message || 'Scheme purchased successfully!');
-          setShowBuyModal(false);
+          setActiveOrderDetails(null);
           fetchSession();
           fetchTransactions();
           fetchOrders();
@@ -1347,6 +1383,13 @@ export default function FastPayApp() {
         body: JSON.stringify({ schemeId: scheme.id, isDraft: true }),
       });
       const data = await res.json();
+      if (res.status === 429 && data.cooldownUntil) {
+        // Scheme is on cooldown — store it and close modal
+        setSchemeCooldowns(prev => ({ ...prev, [scheme.id]: data.cooldownUntil }));
+        setActiveOrderDetails(null);
+        alert(data.error);
+        return;
+      }
       if (data.success) {
         setCurrentDraftOrderId(data.orderId);
         setActiveOrderBankDetails(data.depositDetails);
@@ -2222,22 +2265,54 @@ export default function FastPayApp() {
                   }
                 }
 
-                return displayed.map((scheme) => (
-                  <div
-                    key={scheme.uniqueKey}
-                    onClick={() => handleInitiateSchemePurchase(scheme)}
-                    className="glass-panel interactive-card"
-                    style={{ padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-                  >
-                    <div>
-                      <h4 style={{ fontWeight: 600, fontSize: '0.95rem' }}>{scheme.name}</h4>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                        Price: <strong>₹{scheme.price}</strong> • Duration: <strong>{scheme.days} Days</strong>
+                return displayed.map((scheme) => {
+                  // Check cooldown: from schemeCooldowns state OR from existing orders
+                  let cooldownUntil = schemeCooldowns[scheme.id] ? new Date(schemeCooldowns[scheme.id]) : null;
+                  if (!cooldownUntil) {
+                    // Derive from orders: find most recent active/completed/confirmation_pending order with same scheme_id within 24h
+                    const cutoff24h = Date.now() - 24 * 60 * 60 * 1000;
+                    const recentOrder = orders.find(o =>
+                      o.scheme_id === scheme.id &&
+                      ['active', 'expired_pending_match', 'completed', 'confirmation_pending'].includes(o.status) &&
+                      new Date(o.created_at).getTime() > cutoff24h
+                    );
+                    if (recentOrder) {
+                      cooldownUntil = new Date(new Date(recentOrder.created_at).getTime() + 24 * 60 * 60 * 1000);
+                    }
+                  }
+                  const now = Date.now();
+                  const isOnCooldown = cooldownUntil && cooldownUntil.getTime() > now;
+                  const cooldownRemainSec = isOnCooldown ? Math.floor((cooldownUntil.getTime() - now) / 1000) : 0;
+                  const cdH = Math.floor(cooldownRemainSec / 3600);
+                  const cdM = Math.floor((cooldownRemainSec % 3600) / 60);
+                  const cdS = cooldownRemainSec % 60;
+
+                  return (
+                    <div
+                      key={scheme.uniqueKey}
+                      onClick={() => !isOnCooldown && handleInitiateSchemePurchase(scheme)}
+                      className="glass-panel interactive-card"
+                      style={{ padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: isOnCooldown ? 0.7 : 1, cursor: isOnCooldown ? 'not-allowed' : 'pointer' }}
+                    >
+                      <div>
+                        <h4 style={{ fontWeight: 600, fontSize: '0.95rem' }}>{scheme.name}</h4>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                          Price: <strong>₹{scheme.price}</strong> • Duration: <strong>{scheme.days} Days</strong>
+                        </div>
+                        {isOnCooldown && (
+                          <div style={{ fontSize: '0.72rem', color: 'var(--gold)', marginTop: '4px', fontWeight: 600 }}>
+                            ⏳ Available in {cdH}h {cdM}m {cdS}s
+                          </div>
+                        )}
                       </div>
+                      {isOnCooldown ? (
+                        <div style={{ fontSize: '0.7rem', color: 'var(--gold)', background: 'rgba(253,203,110,0.1)', padding: '4px 8px', borderRadius: '6px', fontWeight: 600 }}>Cooldown</div>
+                      ) : (
+                        <ChevronRight size={18} style={{ color: 'var(--text-secondary)' }} />
+                      )}
                     </div>
-                    <ChevronRight size={18} style={{ color: 'var(--text-secondary)' }} />
-                  </div>
-                ));
+                  );
+                });
               })()}
             </div>
           </div>
@@ -4045,6 +4120,49 @@ export default function FastPayApp() {
                   </button>
                 </div>
               </div>
+
+              {/* Recent Activity Feed */}
+              <div style={{ marginTop: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                  <h3 style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--accent-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                    🔔 Recent Activity
+                  </h3>
+                  {adminNotifications.filter(n => !n.is_read).length > 0 && (
+                    <span style={{ fontSize: '0.7rem', background: 'var(--error)', color: '#fff', padding: '2px 8px', borderRadius: '10px', fontWeight: 700 }}>
+                      {adminNotifications.filter(n => !n.is_read).length} new
+                    </span>
+                  )}
+                </div>
+                {adminNotifications.slice(0, 6).length === 0 ? (
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '12px' }}>No recent activity.</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {adminNotifications.slice(0, 6).map((notif, idx) => {
+                      const actionEmoji = notif.action?.toLowerCase().includes('deposit') ? '💰'
+                        : notif.action?.toLowerCase().includes('withdraw') ? '💸'
+                        : notif.action?.toLowerCase().includes('scheme') || notif.action?.toLowerCase().includes('purchas') ? '📦'
+                        : notif.action?.toLowerCase().includes('register') ? '👤'
+                        : '🔔';
+                      return (
+                        <div key={notif._id || idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: notif.is_read ? 'var(--bg-secondary)' : 'rgba(108,92,231,0.08)', border: notif.is_read ? '1px solid var(--glass-border)' : '1px solid rgba(108,92,231,0.3)', borderRadius: '8px', padding: '10px 12px' }}>
+                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                            <span style={{ fontSize: '1rem' }}>{actionEmoji}</span>
+                            <div>
+                              <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                                <strong>{notif.username}</strong> — {notif.action}
+                              </div>
+                              <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>
+                                ₹{notif.amount?.toFixed(2)} · {new Date(notif.created_at).toLocaleString([], { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                              </div>
+                            </div>
+                          </div>
+                          {!notif.is_read && <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#6c5ce7', flexShrink: 0 }} />}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -5695,11 +5813,63 @@ export default function FastPayApp() {
 
         </div>
       )}
-      {/* --- TAB: TASKS --- */}
-      {activeTab === 'tasks' && (
+      {/* --- TAB: WALLET --- */}
+      {activeTab === 'wallet' && (
         <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+
+          {/* Active Schemes Section */}
           <div>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 600 }} className="gradient-text">🎯 Promotional Tasks & Rewards</h2>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 600 }} className="gradient-text">💼 My Active Schemes</h2>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Your currently running investment plans with live countdown.</p>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {orders.filter(o => o.status === 'active' && o.days_remaining > 0).length === 0 ? (
+              <div className="glass-panel" style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                No active schemes. Purchase a scheme from the Orders tab.
+              </div>
+            ) : (
+              orders.filter(o => o.status === 'active' && o.days_remaining > 0).map((order) => {
+                const totalDays = order.total_payout && order.daily_income > 0 ? Math.round(order.total_payout / order.daily_income) : 3;
+                const purchaseDate = new Date(order.created_at);
+                const maturityDate = new Date(purchaseDate.getTime() + totalDays * 24 * 60 * 60 * 1000);
+                const remainMs = Math.max(0, maturityDate.getTime() - Date.now());
+                const remainH = Math.floor(remainMs / 3600000);
+                const remainM = Math.floor((remainMs % 3600000) / 60000);
+                const progressPct = Math.round(((totalDays - order.days_remaining) / totalDays) * 100);
+                return (
+                  <div
+                    key={order.id}
+                    className="glass-panel interactive-card"
+                    onClick={() => setSelectedWalletScheme(order)}
+                    style={{ padding: '16px', cursor: 'pointer', borderLeft: '3px solid var(--success)' }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div>
+                        <h4 style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-primary)' }}>{order.scheme_name || 'Investment Scheme'}</h4>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>₹{order.price.toFixed(2)} invested</div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--success)', fontWeight: 700, background: 'rgba(0,184,148,0.1)', padding: '2px 8px', borderRadius: '6px' }}>Active</div>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginTop: '4px' }}>{order.days_remaining}d left</div>
+                      </div>
+                    </div>
+                    {/* Progress bar */}
+                    <div style={{ marginTop: '10px', height: '4px', background: 'rgba(255,255,255,0.08)', borderRadius: '4px', overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${progressPct}%`, background: 'linear-gradient(90deg, var(--accent-primary), var(--success))', borderRadius: '4px', transition: 'width 0.3s' }} />
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: 'var(--text-secondary)', marginTop: '6px' }}>
+                      <span>⏳ {remainH}h {remainM}m remaining</span>
+                      <span>{progressPct}% complete</span>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Divider */}
+          <div style={{ borderTop: '1px solid var(--glass-border)', paddingTop: '4px' }}>
+            <h2 style={{ fontSize: '1.1rem', fontWeight: 600 }} className="gradient-text">🎯 Promotional Tasks & Rewards</h2>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
               Complete promotional tasks and targets to claim extra cash rewards! (Limit: 1 claim per task)
             </p>
@@ -5756,6 +5926,88 @@ export default function FastPayApp() {
               "₹1,000 Reward",
               tasksProgress?.task_four_10000_orders
             )}
+          </div>
+        </div>
+      )}
+
+      {/* --- WALLET: SCHEME DETAIL MODAL --- */}
+      {selectedWalletScheme && (() => {
+        const o = selectedWalletScheme;
+        const totalDays = o.total_payout && o.daily_income > 0 ? Math.round(o.total_payout / o.daily_income) : 3;
+        const dailyRatePct = o.daily_income > 0 && o.price > 0 ? ((o.daily_income / o.price) * 100).toFixed(2) : '—';
+        const totalRatePct = totalDays > 0 && o.daily_income > 0 ? ((o.daily_income * totalDays / o.price) * 100).toFixed(2) : '—';
+        const purchaseDate = new Date(o.created_at);
+        const completionDate = new Date(purchaseDate.getTime() + totalDays * 24 * 60 * 60 * 1000);
+        const remainMs = Math.max(0, completionDate.getTime() - Date.now());
+        const remainH = Math.floor(remainMs / 3600000);
+        const remainM = Math.floor((remainMs % 3600000) / 60000);
+        const remainS = Math.floor((remainMs % 60000) / 1000);
+        const statusColor = o.status === 'active' ? 'var(--success)' : o.status === 'completed' ? '#a29bfe' : 'var(--gold)';
+        return (
+          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.92)', zIndex: 1300, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={() => setSelectedWalletScheme(null)}>
+            <div className="glass-panel animate-fade-in" style={{ width: '100%', maxWidth: '480px', padding: '24px', borderRadius: '20px 20px 0 0', border: '1px solid var(--glass-border)', maxHeight: '85vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 700 }} className="gradient-text">📊 Scheme Details</h3>
+                <button onClick={() => setSelectedWalletScheme(null)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: '1.2rem', cursor: 'pointer' }}>✕</button>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.85rem' }}>
+                {[
+                  ['Scheme Name', o.scheme_name || 'Investment Scheme'],
+                  ['Purchase Amount', `₹${o.price.toFixed(2)}`],
+                  ['Daily Return Rate', `${dailyRatePct}% / day`],
+                  ['Total Return Rate', `${totalRatePct}% total`],
+                  ['Daily Profit', `₹${o.daily_income.toFixed(2)}`],
+                  ['Total Expected Profit', `₹${(o.daily_income * totalDays).toFixed(2)}`],
+                  ['Purchase Date', purchaseDate.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })],
+                  ['Completion Date', completionDate.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })],
+                  ['Days Remaining', `${o.days_remaining} of ${totalDays} days`],
+                  ['Live Countdown', `${remainH}h ${remainM}m ${remainS}s`],
+                  ['Current Status', o.status],
+                ].map(([label, value]) => (
+                  <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>{label}</span>
+                    <strong style={{ color: label === 'Current Status' ? statusColor : 'var(--text-primary)', textTransform: label === 'Current Status' ? 'capitalize' : 'none' }}>{value}</strong>
+                  </div>
+                ))}
+              </div>
+              <button onClick={() => setSelectedWalletScheme(null)} className="gradient-btn" style={{ marginTop: '20px', padding: '12px', borderRadius: '10px', fontSize: '0.9rem' }}>Close</button>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* --- FORCE UPDATE MODAL --- */}
+      {showForceUpdate && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.97)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
+          <div className="glass-panel animate-fade-in" style={{ width: '100%', maxWidth: '380px', padding: '32px', textAlign: 'center', border: '1px solid rgba(162,155,254,0.4)' }}>
+            <div style={{ fontSize: '3rem', marginBottom: '16px' }}>🚀</div>
+            <h2 style={{ fontSize: '1.4rem', fontWeight: 800, marginBottom: '10px' }} className="gradient-text">New Version Available</h2>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.5', marginBottom: '28px' }}>
+              A new version of the application is available.<br />Please update to continue using FastPay.
+            </p>
+            <button
+              className="gradient-btn"
+              style={{ padding: '14px 28px', borderRadius: '12px', fontSize: '1rem', fontWeight: 700 }}
+              onClick={async () => {
+                try {
+                  if ('caches' in window) {
+                    const cacheKeys = await caches.keys();
+                    await Promise.all(cacheKeys.map(key => caches.delete(key)));
+                  }
+                  if ('serviceWorker' in navigator) {
+                    const regs = await navigator.serviceWorker.getRegistrations();
+                    await Promise.all(regs.map(r => r.unregister()));
+                  }
+                  localStorage.setItem('fp_app_version', serverAppVersion);
+                  window.location.reload(true);
+                } catch (e) {
+                  localStorage.setItem('fp_app_version', serverAppVersion);
+                  window.location.reload();
+                }
+              }}
+            >
+              Update Now
+            </button>
           </div>
         </div>
       )}
@@ -6395,8 +6647,9 @@ export default function FastPayApp() {
                   <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Cashout Amount (INR)</label>
                   <input
                     type="number"
+                    step="any"
                     className="form-input"
-                    placeholder="Enter amount to withdraw"
+                    placeholder="Enter amount (e.g. ₹168.45)"
                     value={withdrawAmount}
                     onChange={(e) => setWithdrawAmount(e.target.value)}
                     required
@@ -6701,11 +6954,11 @@ export default function FastPayApp() {
         </button>
 
         <button
-          onClick={() => { setActiveTab('tasks'); fetchTasksProgress(); }}
-          className={`nav-item ${activeTab === 'tasks' ? 'active' : ''}`}
+          onClick={() => { setActiveTab('wallet'); fetchTasksProgress(); }}
+          className={`nav-item ${activeTab === 'wallet' ? 'active' : ''}`}
         >
-          <CheckSquare className="nav-icon" />
-          <span>Tasks</span>
+          <Wallet className="nav-icon" />
+          <span>Wallet</span>
         </button>
 
         <button
