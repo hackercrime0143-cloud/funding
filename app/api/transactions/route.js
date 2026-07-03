@@ -6,45 +6,59 @@ import { saveBase64Image } from '@/lib/upload';
 
 async function getWalletWithdrawalLimit(userId) {
   const user = await User.findById(userId);
-  const orders = await Order.find({ user_id: userId, status: { $in: ['active', 'expired_pending_match', 'completed'] } });
+
+  // Only look at CURRENTLY ACTIVE orders (days_remaining > 0) for locking.
+  // Expired (expired_pending_match) and completed orders have finished —
+  // their principal is no longer locked regardless of crowdfunding match status.
+  const allOrders = await Order.find({
+    user_id: userId,
+    status: { $in: ['active', 'expired_pending_match', 'completed'] }
+  });
 
   let lockedAmount = 0;
-  let hasBigScheme = false;
-  let hasSmallScheme = false;
+  let hasActiveBigScheme = false;  // ≥₹200 and still running
+  let hasMaturedScheme = false;    // any scheme that has finished all days
 
-  for (const order of orders) {
-    if (order.price >= 200) {
-      hasBigScheme = true;
-      if (order.status === 'active') {
-        lockedAmount += order.price;
-      }
-    } else {
-      hasSmallScheme = true;
-      if (order.status === 'active') {
-        let totalDays = 3;
-        if (order.scheme_id) {
-          const scheme = await Scheme.findById(order.scheme_id);
-          if (scheme) {
-            totalDays = scheme.days;
-          }
-        }
-        const paidDays = totalDays - order.days_remaining;
-        const paidAmount = order.price + order.daily_income * paidDays;
-        lockedAmount += paidAmount;
+  for (const order of allOrders) {
+    const isCurrentlyRunning = order.status === 'active' && order.days_remaining > 0;
+    const hasMatured = order.days_remaining === 0 || order.status === 'expired_pending_match' || order.status === 'completed';
+
+    if (hasMatured) {
+      // Principal is fully unlocked — nothing to lock
+      hasMaturedScheme = true;
+    } else if (isCurrentlyRunning) {
+      // Lock the full principal of every running scheme
+      lockedAmount += order.price;
+      if (order.price >= 200) {
+        hasActiveBigScheme = true;
       }
     }
   }
 
   const withdrawableBalance = Math.max(0, user.wallet_balance - lockedAmount);
-  const minWithdrawal = (hasBigScheme || orders.length === 0) ? 200 : 0;
+
+  // ₹200 minimum applies ONLY when the user has active (running) big schemes
+  // and has NOT matured any scheme yet. Once any scheme matures, the minimum is waived.
+  let minWithdrawal = 200; // default
+  if (hasMaturedScheme) {
+    // At least one scheme has completed — allow withdrawal of any amount
+    minWithdrawal = 0;
+  } else if (allOrders.length === 0) {
+    // No schemes at all — standard ₹200 minimum
+    minWithdrawal = 200;
+  } else if (!hasActiveBigScheme) {
+    // Only small active schemes (<₹200) — waive the minimum once matured
+    // (if still running, they must wait; but we don't block with ₹200)
+    minWithdrawal = 0;
+  }
 
   return {
     walletBalance: user.wallet_balance,
     lockedAmount,
     withdrawableBalance,
     minWithdrawal,
-    hasBigScheme,
-    hasSmallScheme
+    hasActiveBigScheme,
+    hasMaturedScheme
   };
 }
 

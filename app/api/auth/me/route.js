@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
-import { User, Order, Transaction, BankDetails, Settings, Scheme } from '@/lib/models';
+import { User, Order, Transaction, BankDetails, Settings } from '@/lib/models';
 import { getSessionFromCookies } from '@/lib/auth';
 
 export async function GET(request) {
@@ -76,37 +76,42 @@ export async function GET(request) {
     }
 
     // Calculate smart withdrawal limits
+    // Rules:
+    //  - Active orders (days_remaining > 0) → principal is LOCKED
+    //  - Matured orders (days_remaining == 0, or status expired_pending_match/completed) → principal UNLOCKED
+    //  - ₹200 minimum waived if ANY scheme has matured
+    //  - ₹200 minimum also waived for users whose only schemes are small (<₹200) active ones
     const freshOrders = await Order.find({ user_id: session.id, status: { $in: ['active', 'expired_pending_match', 'completed'] } });
 
     let lockedBalance = 0;
-    let hasBigScheme = false;
-    let hasSmallScheme = false;
+    let hasActiveBigScheme = false;
+    let hasMaturedScheme = false;
 
     for (const order of freshOrders) {
-      if (order.price >= 200) {
-        hasBigScheme = true;
-        if (order.status === 'active') {
-          lockedBalance += order.price;
-        }
-      } else {
-        hasSmallScheme = true;
-        if (order.status === 'active') {
-          let totalDays = 3;
-          if (order.scheme_id) {
-            const scheme = await Scheme.findById(order.scheme_id);
-            if (scheme) {
-              totalDays = scheme.days;
-            }
-          }
-          const paidDays = totalDays - order.days_remaining;
-          const paidAmount = order.price + order.daily_income * paidDays;
-          lockedBalance += paidAmount;
+      const isCurrentlyRunning = order.status === 'active' && order.days_remaining > 0;
+      const hasMatureStatus = order.days_remaining === 0 || order.status === 'expired_pending_match' || order.status === 'completed';
+
+      if (hasMatureStatus) {
+        hasMaturedScheme = true;
+        // Principal is unlocked — do NOT add to lockedBalance
+      } else if (isCurrentlyRunning) {
+        lockedBalance += order.price;
+        if (order.price >= 200) {
+          hasActiveBigScheme = true;
         }
       }
     }
 
     const withdrawableBalance = Math.max(0, user.wallet_balance - lockedBalance);
-    const minWithdrawal = (hasBigScheme || freshOrders.length === 0) ? 200 : 0;
+
+    let minWithdrawal = 200; // default
+    if (hasMaturedScheme) {
+      minWithdrawal = 0; // Any matured scheme → full withdrawal allowed at any amount
+    } else if (freshOrders.length === 0) {
+      minWithdrawal = 200; // No schemes at all → standard minimum
+    } else if (!hasActiveBigScheme) {
+      minWithdrawal = 0; // Only small (<₹200) active schemes → waive the minimum
+    }
 
     // Get linking status
     const bankDetails = await BankDetails.findOne({ user_id: session.id });
