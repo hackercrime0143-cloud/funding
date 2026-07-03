@@ -133,7 +133,8 @@ export async function POST(request) {
       user_id: buyer._id,
       type: 'scheme_payout',
       amount: dailyYield,
-      status: 'completed'
+      status: 'completed',
+      order_id: order._id
     });
 
     // Distribute referral commissions

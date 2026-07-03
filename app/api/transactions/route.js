@@ -1,8 +1,52 @@
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
-import { User, Transaction, VirtualAccount, BankDetails, Order, Scheme } from '@/lib/models';
+import { User, Transaction, VirtualAccount, BankDetails, Order, Scheme, createAdminNotification } from '@/lib/models';
 import { getSessionFromCookies } from '@/lib/auth';
 import { saveBase64Image } from '@/lib/upload';
+
+async function getWalletWithdrawalLimit(userId) {
+  const user = await User.findById(userId);
+  const orders = await Order.find({ user_id: userId, status: { $in: ['active', 'expired_pending_match', 'completed'] } });
+
+  let lockedAmount = 0;
+  let hasBigScheme = false;
+  let hasSmallScheme = false;
+
+  for (const order of orders) {
+    if (order.price >= 200) {
+      hasBigScheme = true;
+      if (order.status === 'active') {
+        lockedAmount += order.price;
+      }
+    } else {
+      hasSmallScheme = true;
+      if (order.status === 'active') {
+        let totalDays = 3;
+        if (order.scheme_id) {
+          const scheme = await Scheme.findById(order.scheme_id);
+          if (scheme) {
+            totalDays = scheme.days;
+          }
+        }
+        const paidDays = totalDays - order.days_remaining;
+        const paidAmount = order.price + order.daily_income * paidDays;
+        lockedAmount += paidAmount;
+      }
+    }
+  }
+
+  const withdrawableBalance = Math.max(0, user.wallet_balance - lockedAmount);
+  const minWithdrawal = (hasBigScheme || orders.length === 0) ? 200 : 0;
+
+  return {
+    walletBalance: user.wallet_balance,
+    lockedAmount,
+    withdrawableBalance,
+    minWithdrawal,
+    hasBigScheme,
+    hasSmallScheme
+  };
+}
 
 // Fetch user transactions
 export async function GET(request) {
@@ -17,6 +61,10 @@ export async function GET(request) {
 
     const txs = await Transaction.find({ user_id: session.id })
       .populate('virtual_account_id')
+      .populate({
+        path: 'order_id',
+        populate: { path: 'scheme_id' }
+      })
       .sort({ created_at: -1 });
 
     const transactions = txs.map(t => ({
@@ -39,7 +87,9 @@ export async function GET(request) {
       withdrawal_upi_id: t.withdrawal_upi_id || null,
       wallet_balance_at_request: t.wallet_balance_at_request || 0,
       rejection_reason: t.rejection_reason || '',
-      resolved_at: t.resolved_at || null
+      resolved_at: t.resolved_at || null,
+      order_id: t.order_id ? t.order_id._id.toString() : null,
+      scheme_name: t.order_id && t.order_id.scheme_id ? t.order_id.scheme_id.name : (t.order_id ? 'Quick Deposit Scheme' : null)
     }));
 
     return NextResponse.json({ success: true, transactions });
@@ -143,6 +193,9 @@ export async function POST(request) {
         deposit_qr_code: virtualAcc.qr_code || ""
       });
 
+      // Notify admin
+      await createAdminNotification(session.id, reqAmount, 'Submitted new deposit');
+
       return NextResponse.json({
         success: true,
         message: 'Deposit request initiated.',
@@ -165,9 +218,15 @@ export async function POST(request) {
         return NextResponse.json({ error: 'Please link your Bank/UPI details first in the Account section.' }, { status: 400 });
       }
 
-      // Check minimum withdrawal limit
-      if (reqAmount < 200) {
-        return NextResponse.json({ error: 'Minimum withdrawal amount is ₹200.00.' }, { status: 400 });
+      // Get smart withdrawal limits
+      const limits = await getWalletWithdrawalLimit(session.id);
+
+      if (limits.withdrawableBalance < reqAmount) {
+        return NextResponse.json({ error: `Insufficient withdrawable balance. Your withdrawable balance is ₹${limits.withdrawableBalance.toFixed(2)} (Locked: ₹${limits.lockedAmount.toFixed(2)}).` }, { status: 400 });
+      }
+
+      if (reqAmount < limits.minWithdrawal) {
+        return NextResponse.json({ error: `Minimum withdrawal amount is ₹${limits.minWithdrawal.toFixed(2)}.` }, { status: 400 });
       }
 
       // Check 24-hour limit
@@ -231,6 +290,9 @@ export async function POST(request) {
         wallet_balance_at_request: balanceBefore
       });
 
+      // Notify admin
+      await createAdminNotification(session.id, reqAmount, 'Submitted withdrawal request');
+
       return NextResponse.json({
         success: true,
         message: `Withdrawal request submitted successfully. Your remaining balance is ₹${user.wallet_balance.toFixed(2)}. Processing will take 2-4 hours.`
@@ -286,6 +348,9 @@ export async function PATCH(request) {
     tx.screenshot = await saveBase64Image(screenshot);
     tx.status = 'confirmation_pending';
     await tx.save();
+
+    // Notify admin
+    await createAdminNotification(session.id, tx.amount, 'Uploaded payment screenshot');
 
     // Custom Deposit Scheme auto-creation:
     // If the deposit amount is between ₹100 and ₹500 inclusive:

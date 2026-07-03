@@ -159,6 +159,14 @@ export default function FastPayApp() {
   const [adminPwaInstallPromptText, setAdminPwaInstallPromptText] = useState('Install FastPay to your device home screen for a native, fast, and full-screen mobile app experience.');
   const [adminPwaVersion, setAdminPwaVersion] = useState('1.0.0');
 
+  // Admin Action Notifications States
+  const [adminNotifications, setAdminNotifications] = useState([]);
+
+  // Profit Details View Page States
+  const [showProfitDetailsPage, setShowProfitDetailsPage] = useState(false);
+  const [showMeProfitDetailsPage, setShowMeProfitDetailsPage] = useState(false);
+  const [showPrincipalDetailsPage, setShowPrincipalDetailsPage] = useState(false);
+
   // Payment Accounts pool state
   const [adminVirtualAccounts, setAdminVirtualAccounts] = useState([]);
   const [newPaBankName, setNewPaBankName] = useState('Axis Bank');
@@ -196,6 +204,30 @@ export default function FastPayApp() {
   const [virtualAccountTimer, setVirtualAccountTimer] = useState(0);
   const [txMessage, setTxMessage] = useState({ type: '', text: '' });
   const [txHistory, setTxHistory] = useState([]);
+
+  const completedTxs = txHistory.filter(t => t.status === 'completed');
+
+  const investmentProfit = completedTxs
+    .filter(t => t.type === 'scheme_payout')
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  const referralProfit = completedTxs
+    .filter(t => t.type === 'referral_bonus_invited')
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  const commissionProfit = completedTxs
+    .filter(t => ['referral_commission_l1', 'referral_commission_l2'].includes(t.type))
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  const bonusProfit = completedTxs
+    .filter(t => ['task_reward', 'referral_bonus_signup'].includes(t.type))
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  const otherProfit = completedTxs
+    .filter(t => t.amount > 0 && !['deposit', 'principal_return', 'scheme_payout', 'referral_bonus_invited', 'referral_commission_l1', 'referral_commission_l2', 'task_reward', 'referral_bonus_signup'].includes(t.type))
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  const totalProfit = investmentProfit + referralProfit + commissionProfit + bonusProfit + otherProfit;
   const [activeOrderBankDetails, setActiveOrderBankDetails] = useState(null);
   const [depositUtr, setDepositUtr] = useState('');
   const [depositScreenshot, setDepositScreenshot] = useState(null);
@@ -478,6 +510,50 @@ export default function FastPayApp() {
     }
   };
 
+  const fetchAdminNotifications = async () => {
+    try {
+      const res = await fetch('/api/admin/notifications');
+      const data = await res.json();
+      if (data.success) {
+        setAdminNotifications(data.notifications || []);
+      }
+    } catch (e) {
+      console.error('Error fetching admin notifications:', e);
+    }
+  };
+
+  const handleMarkNotificationRead = async (id) => {
+    try {
+      const res = await fetch('/api/admin/notifications', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notificationId: id })
+      });
+      const data = await res.json();
+      if (data.success) {
+        fetchAdminNotifications();
+      }
+    } catch (e) {
+      console.error('Error marking notification read:', e);
+    }
+  };
+
+  const handleMarkAllNotificationsRead = async () => {
+    try {
+      const res = await fetch('/api/admin/notifications', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ markAll: true })
+      });
+      const data = await res.json();
+      if (data.success) {
+        fetchAdminNotifications();
+      }
+    } catch (e) {
+      console.error('Error marking all notifications read:', e);
+    }
+  };
+
   const fetchAdminData = async () => {
     try {
       const res = await fetch('/api/admin/data');
@@ -751,6 +827,18 @@ export default function FastPayApp() {
       fetchAdminData();
     }
   }, [activeTab]);
+
+  // Polling for admin notifications every 5 seconds when admin tab or admin user is logged in
+  useEffect(() => {
+    let interval;
+    if (activeTab === 'admin' || (user && user.role === 'admin')) {
+      fetchAdminNotifications();
+      interval = setInterval(() => {
+        fetchAdminNotifications();
+      }, 5000);
+    }
+    return () => clearInterval(interval);
+  }, [activeTab, user]);
 
   // Lazy load list page data slices on tab, filters, search, or pagination changes
   useEffect(() => {
@@ -1080,6 +1168,18 @@ export default function FastPayApp() {
       setTxMessage({ type: 'error', text: 'Enter a valid withdrawal amount.' });
       return;
     }
+    const amountVal = parseFloat(withdrawAmount);
+    const minW = user?.minWithdrawal !== undefined ? user.minWithdrawal : 200;
+    const maxW = user?.withdrawableBalance !== undefined ? user.withdrawableBalance : user?.walletBalance;
+
+    if (amountVal < minW) {
+      setTxMessage({ type: 'error', text: `Minimum cash-out is ₹${minW.toFixed(2)}.` });
+      return;
+    }
+    if (amountVal > maxW) {
+      setTxMessage({ type: 'error', text: `Insufficient withdrawable balance. Maximum you can cash-out is ₹${maxW.toFixed(2)}.` });
+      return;
+    }
     setWithdrawLoading(true);
     try {
       const res = await fetch('/api/transactions', {
@@ -1202,6 +1302,31 @@ export default function FastPayApp() {
         alert("To install FastPay on your iOS device: Open Safari, tap the Share icon, and select 'Add to Home Screen'.");
       } else {
         alert("Your browser does not support automatic app installation. Please use your browser's menu to install FastPay.");
+      }
+    }
+  };
+
+  const handleWalletPurchaseConfirm = async () => {
+    if (!activeOrderDetails) return;
+    if (confirm(`Confirm purchase of ${activeOrderDetails.name} for ₹${activeOrderDetails.price} using your Wallet Balance?`)) {
+      try {
+        const res = await fetch('/api/orders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ schemeId: activeOrderDetails.id || activeOrderDetails._id, paymentMethod: 'wallet' })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert(data.message || 'Scheme purchased successfully!');
+          setShowBuyModal(false);
+          fetchSession();
+          fetchTransactions();
+          fetchOrders();
+        } else {
+          alert(data.error || 'Failed to complete wallet purchase.');
+        }
+      } catch (e) {
+        alert('Server error executing wallet purchase.');
       }
     }
   };
@@ -1902,33 +2027,55 @@ export default function FastPayApp() {
             </div>
           </div>
 
-          {/* Main Wallet Card */}
-          <div className="glass-panel" style={{ padding: '24px', background: 'linear-gradient(135deg, rgba(108, 92, 231, 0.2) 0%, rgba(0, 206, 201, 0.1) 100%)', border: '1px solid rgba(108, 92, 231, 0.3)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Wallet Available Balance</span>
-              <button 
-                onClick={() => { fetchSession(); fetchTransactions(); }} 
-                style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.85rem' }}
-                title="Refresh Balance"
-              >
-                <RefreshCw size={14} /> Refresh
-              </button>
+          {/* Wallets & Profits Grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+            {/* Main Wallet Card */}
+            <div className="glass-panel" style={{ padding: '20px', background: 'linear-gradient(135deg, rgba(108, 92, 231, 0.2) 0%, rgba(0, 206, 201, 0.1) 100%)', border: '1px solid rgba(108, 92, 231, 0.3)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Available Balance</span>
+                  <button 
+                    onClick={() => { fetchSession(); fetchTransactions(); }} 
+                    style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem' }}
+                    title="Refresh Balance"
+                  >
+                    <RefreshCw size={12} />
+                  </button>
+                </div>
+                <div style={{ fontSize: '1.8rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                  ₹{user?.walletBalance.toFixed(2)}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+                <button
+                  style={{ flex: 1, padding: '10px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', color: 'var(--text-secondary)', pointerEvents: 'none', cursor: 'default', fontSize: '0.8rem' }}
+                >
+                  <Plus size={14} /> Deposit
+                </button>
+                <button
+                  onClick={() => { setWithdrawAmount(''); setTxMessage({ type: '', text: '' }); setShowWithdrawModal(true); }}
+                  style={{ flex: 1, padding: '10px', borderRadius: '8px', background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', color: 'var(--text-primary)', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', fontSize: '0.8rem' }}
+                >
+                  <ArrowUpRight size={14} /> Cash-out
+                </button>
+              </div>
             </div>
-            <div style={{ fontSize: '2.5rem', fontWeight: 700, margin: '8px 0', color: 'var(--text-primary)' }}>
-              ₹{user?.walletBalance.toFixed(2)}
-            </div>
-            <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
-              <button
-                style={{ flex: 1, padding: '12px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', color: 'var(--text-secondary)', pointerEvents: 'none', cursor: 'default' }}
-              >
-                <Plus size={16} /> Deposit
-              </button>
-              <button
-                onClick={() => { setWithdrawAmount(''); setTxMessage({ type: '', text: '' }); setShowWithdrawModal(true); }}
-                style={{ flex: 1, padding: '12px', borderRadius: '10px', background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', color: 'var(--text-primary)', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
-              >
-                <ArrowUpRight size={16} /> Cash-out
-              </button>
+
+            {/* Total Profit Card */}
+            <div 
+              className="glass-panel interactive-card"
+              onClick={() => setShowProfitDetailsPage(true)}
+              style={{ padding: '20px', background: 'linear-gradient(135deg, rgba(0, 184, 148, 0.15) 0%, rgba(0, 206, 201, 0.05) 100%)', border: '1px solid rgba(0, 184, 148, 0.3)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', cursor: 'pointer' }}
+            >
+              <div>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '8px' }}>Total Profit</span>
+                <div style={{ fontSize: '1.8rem', fontWeight: 700, color: 'var(--success)' }}>
+                  ₹{totalProfit.toFixed(2)}
+                </div>
+              </div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--accent-secondary)', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '16px' }}>
+                <span>⚡ Click to view profit breakdown</span>
+              </div>
             </div>
           </div>
 
@@ -2505,17 +2652,34 @@ export default function FastPayApp() {
         <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {/* User balance cards */}
           <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', alignItems: 'center' }}>
               <div>
                 <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block' }}>Available Earning Balance</span>
-                <h2 style={{ fontSize: '1.75rem', fontWeight: 700, color: 'var(--text-primary)' }}>₹{user?.walletBalance.toFixed(2)}</h2>
+                <h2 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)' }}>₹{user?.walletBalance.toFixed(2)}</h2>
               </div>
-              <div style={{ textAlign: 'right' }}>
-                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block' }}>Active Principal Balance</span>
-                <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--accent-secondary)' }}>
-                  ₹{orders.reduce((acc, o) => acc + (o.status === 'active' && o.days_remaining > 0 ? o.price : 0), 0).toFixed(2)}
+              <div 
+                style={{ textAlign: 'right', cursor: 'pointer' }}
+                onClick={() => setShowMeProfitDetailsPage(true)}
+              >
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block' }}>Total Profit ⚡</span>
+                <h3 style={{ fontSize: '1.3rem', fontWeight: 700, color: 'var(--success)' }}>
+                  ₹{totalProfit.toFixed(2)}
                 </h3>
+                <span style={{ fontSize: '0.6rem', color: 'var(--accent-secondary)', display: 'block' }}>(Click for breakdown)</span>
               </div>
+            </div>
+            
+            <div 
+              style={{ borderTop: '1px solid var(--glass-border)', paddingTop: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
+              onClick={() => setShowPrincipalDetailsPage(true)}
+            >
+              <div>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Subscribed Principal Balance</span>
+                <div style={{ fontSize: '0.65rem', color: 'var(--accent-secondary)', marginTop: '2px' }}>Click to view active schemes details</div>
+              </div>
+              <strong style={{ fontSize: '1.25rem', color: 'var(--accent-secondary)' }}>
+                ₹{orders.reduce((acc, o) => acc + (o.status === 'active' && o.days_remaining > 0 ? o.price : 0), 0).toFixed(2)}
+              </strong>
             </div>
 
             {/* Admin Dashboard Entry (visible ONLY to username === 'admin' or 'atifk') */}
@@ -2838,7 +3002,8 @@ export default function FastPayApp() {
                 { id: 'schemes', label: 'Investment Schemes' },
                 { id: 'withdrawals', label: 'Withdrawal Manager' },
                 { id: 'pwa-settings', label: 'PWA Settings' },
-                { id: 'payment-accounts', label: 'Payment Accounts' }
+                { id: 'payment-accounts', label: 'Payment Accounts' },
+                { id: 'notifications', label: `Notifications (${adminNotifications.filter(n => !n.is_read).length})` }
               ].map((tab) => (
                 <button
                   key={tab.id}
@@ -3047,6 +3212,7 @@ export default function FastPayApp() {
                               <tr style={{ borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)' }}>
                                 <th style={{ padding: '4px' }}>Amount</th>
                                 <th style={{ padding: '4px' }}>UTR</th>
+                                <th style={{ padding: '4px' }}>Screenshot</th>
                                 <th style={{ padding: '4px' }}>Status</th>
                               </tr>
                             </thead>
@@ -3055,6 +3221,23 @@ export default function FastPayApp() {
                                 <tr key={d.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
                                   <td style={{ padding: '6px 4px' }}>₹{d.amount.toFixed(2)}</td>
                                   <td style={{ padding: '6px 4px', fontFamily: 'monospace' }}>{d.utr || 'N/A'}</td>
+                                  <td style={{ padding: '6px 4px' }}>
+                                    {d.screenshot && d.screenshot !== 'null' && d.screenshot !== '' ? (
+                                      <img
+                                        src={d.screenshot}
+                                        alt="Proof"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const w = window.open();
+                                          w.document.write(`<img src="${d.screenshot}" style="max-width:100%; max-height:100vh; display:block; margin:auto;">`);
+                                          w.document.title = "Payment Receipt Screenshot";
+                                        }}
+                                        style={{ width: '40px', height: '40px', objectFit: 'cover', borderRadius: '4px', cursor: 'pointer', border: '1px solid var(--glass-border)' }}
+                                      />
+                                    ) : (
+                                      <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>No Screenshot</span>
+                                    )}
+                                  </td>
                                   <td style={{ padding: '6px 4px' }}>
                                     <span style={{
                                       color: d.status === 'completed' ? 'var(--success)' : d.status === 'pending' ? 'var(--gold)' : 'var(--error)',
@@ -5438,6 +5621,78 @@ export default function FastPayApp() {
             </div>
           )}
 
+          {/* Section: Notifications View */}
+          {adminActiveSubTab === 'notifications' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)' }}>Admin Action Notifications</h3>
+                {adminNotifications.filter(n => !n.is_read).length > 0 && (
+                  <button
+                    onClick={handleMarkAllNotificationsRead}
+                    className="form-input"
+                    style={{ width: 'auto', padding: '6px 14px', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer', background: 'rgba(9, 132, 227, 0.2)', border: '1px solid #0984e3', color: '#0984e3', fontWeight: 700 }}
+                  >
+                    Mark All as Read
+                  </button>
+                )}
+              </div>
+
+              {adminNotifications.length === 0 ? (
+                <div className="glass-panel" style={{ padding: '30px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                  No notifications recorded.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {adminNotifications.map((notif) => (
+                    <div
+                      key={notif._id || notif.id}
+                      className="glass-panel"
+                      style={{
+                        padding: '16px',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        background: notif.is_read ? 'var(--bg-secondary)' : 'rgba(9, 132, 227, 0.05)',
+                        borderLeft: notif.is_read ? '3px solid var(--text-secondary)' : '3px solid #0984e3',
+                        borderRadius: '6px'
+                      }}
+                    >
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <div style={{ fontWeight: 700, fontSize: '0.9rem', color: notif.is_read ? 'var(--text-secondary)' : 'var(--text-primary)' }}>
+                          {notif.action} - <span style={{ color: 'var(--success)' }}>₹{Math.abs(notif.amount).toFixed(2)}</span>
+                        </div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                          User: <strong>{notif.username}</strong> (ID: {notif.user_id})
+                        </div>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                          {new Date(notif.created_at).toLocaleString()}
+                        </div>
+                      </div>
+                      {!notif.is_read && (
+                        <button
+                          onClick={() => handleMarkNotificationRead(notif._id || notif.id)}
+                          className="form-input"
+                          style={{
+                            width: 'auto',
+                            padding: '4px 10px',
+                            fontSize: '0.7rem',
+                            background: 'none',
+                            color: 'var(--accent-secondary)',
+                            border: '1px solid var(--accent-secondary)',
+                            cursor: 'pointer',
+                            borderRadius: '4px'
+                          }}
+                        >
+                          Mark as Read
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
         </div>
       )}
       {/* --- TAB: TASKS --- */}
@@ -5682,12 +5937,77 @@ export default function FastPayApp() {
                 </div>
 
                 <button
-                  onClick={() => setPaymentStep(2)}
+                  onClick={() => setPaymentStep(1.5)}
                   className="gradient-btn"
                   style={{ width: '100%', padding: '14px', borderRadius: '10px', fontSize: '1rem' }}
                 >
                   Proceed to Payment
                 </button>
+              </>
+            ) : paymentStep === 1.5 ? (
+              <>
+                <h4 style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: '14px', color: 'var(--text-primary)' }}>Choose Payment Method</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
+                  
+                  {/* Option 1: Pay using Wallet */}
+                  <div 
+                    className={`glass-panel ${user?.walletBalance >= activeOrderDetails.price ? 'interactive-card' : ''}`}
+                    onClick={user?.walletBalance >= activeOrderDetails.price ? handleWalletPurchaseConfirm : undefined}
+                    style={{
+                      padding: '16px',
+                      border: '1px solid rgba(0, 184, 148, 0.3)',
+                      background: 'rgba(0, 184, 148, 0.05)',
+                      borderRadius: '8px',
+                      cursor: user?.walletBalance >= activeOrderDetails.price ? 'pointer' : 'not-allowed',
+                      opacity: user?.walletBalance >= activeOrderDetails.price ? 1 : 0.5,
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center'
+                    }}
+                  >
+                    <div>
+                      <strong style={{ fontSize: '0.9rem', display: 'block', color: 'var(--text-primary)', textAlign: 'left' }}>💳 Pay Using Wallet Balance</strong>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Available Balance: ₹{user?.walletBalance.toFixed(2)}</span>
+                    </div>
+                    {user?.walletBalance >= activeOrderDetails.price ? (
+                      <span style={{ fontSize: '0.8rem', color: 'var(--success)', fontWeight: 700 }}>Select</span>
+                    ) : (
+                      <span style={{ fontSize: '0.75rem', color: 'var(--error)' }}>Insufficient Balance</span>
+                    )}
+                  </div>
+
+                  {/* Option 2: Pay using Bank Account */}
+                  <div 
+                    className="glass-panel interactive-card"
+                    onClick={() => setPaymentStep(2)}
+                    style={{
+                      padding: '16px',
+                      border: '1px solid var(--glass-border)',
+                      background: 'rgba(255,255,255,0.01)',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center'
+                    }}
+                  >
+                    <div>
+                      <strong style={{ fontSize: '0.9rem', display: 'block', color: 'var(--text-primary)', textAlign: 'left' }}>🏦 Pay Using Bank Account / QR Code</strong>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', textAlign: 'left' }}>Scan QR code or transfer directly to bank details</span>
+                    </div>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--accent-secondary)', fontWeight: 700 }}>Select</span>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    onClick={() => setPaymentStep(1)}
+                    className="form-input"
+                    style={{ width: 'auto', padding: '12px 20px', borderRadius: '10px', fontSize: '0.9rem', cursor: 'pointer' }}
+                  >
+                    Back
+                  </button>
+                </div>
               </>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="animate-fade-in">
@@ -6052,6 +6372,26 @@ export default function FastPayApp() {
                   <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '8px' }}>
                     Settling directly to linked Bank Name: <strong>{user?.bankDetails?.accountName}</strong> ({user?.bankDetails?.upi_id})
                   </span>
+
+                  <div style={{ background: 'rgba(255,255,255,0.03)', padding: '10px', borderRadius: '8px', marginBottom: '12px', fontSize: '0.75rem', display: 'flex', flexDirection: 'column', gap: '4px', border: '1px solid var(--glass-border)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>Wallet Balance:</span>
+                      <strong>₹{user?.walletBalance?.toFixed(2)}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>Locked (Active Schemes):</span>
+                      <strong style={{ color: 'var(--error)' }}>₹{user?.lockedBalance?.toFixed(2) || '0.00'}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '4px', marginTop: '4px' }}>
+                      <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>Withdrawable Balance:</span>
+                      <strong style={{ color: 'var(--success)', fontSize: '0.8rem' }}>₹{user?.withdrawableBalance?.toFixed(2) || user?.walletBalance?.toFixed(2)}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>Required Minimum Limit:</span>
+                      <strong>₹{user?.minWithdrawal !== undefined ? user.minWithdrawal.toFixed(2) : '200.00'}</strong>
+                    </div>
+                  </div>
+
                   <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Cashout Amount (INR)</label>
                   <input
                     type="number"
@@ -6072,6 +6412,170 @@ export default function FastPayApp() {
                 </button>
               </form>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL: PROFIT BREAKDOWN DETAIL POPUP --- */}
+      {(showProfitDetailsPage || showMeProfitDetailsPage) && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '500px', padding: '24px', maxHeight: '85vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h3 style={{ fontSize: '1.2rem', fontWeight: 700 }} className="gradient-text">Profit Summary Breakdown</h3>
+              <button
+                onClick={() => { setShowProfitDetailsPage(false); setShowMeProfitDetailsPage(false); }}
+                style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '1rem' }}
+              >
+                Close
+              </button>
+            </div>
+
+            {/* Total Profit Hero */}
+            <div style={{ textAlign: 'center', padding: '20px 0', borderBottom: '1px solid var(--glass-border)', marginBottom: '20px' }}>
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Cumulative Earnings</span>
+              <div style={{ fontSize: '2.5rem', fontWeight: 800, color: 'var(--success)', marginTop: '4px' }}>₹{totalProfit.toFixed(2)}</div>
+            </div>
+
+            {/* Source Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
+              <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>📈 Investment Profit</span>
+                <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: '4px' }}>₹{investmentProfit.toFixed(2)}</div>
+              </div>
+              <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>👥 Referral Profit</span>
+                <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: '4px' }}>₹{referralProfit.toFixed(2)}</div>
+              </div>
+              <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>⚡ Daily Commission</span>
+                <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: '4px' }}>₹{commissionProfit.toFixed(2)}</div>
+              </div>
+              <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>🎁 Bonus Rewards</span>
+                <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: '4px' }}>₹{bonusProfit.toFixed(2)}</div>
+              </div>
+              {otherProfit > 0 && (
+                <div style={{ gridColumn: 'span 2', background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>💼 Other Earnings</span>
+                  <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: '4px' }}>₹{otherProfit.toFixed(2)}</div>
+                </div>
+              )}
+            </div>
+
+            {/* Profit Transaction Log */}
+            <h4 style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: '10px', color: 'var(--text-primary)' }}>Earning History Logs</h4>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '250px', overflowY: 'auto' }}>
+              {completedTxs.filter(t => ['scheme_payout', 'referral_bonus_invited', 'referral_commission_l1', 'referral_commission_l2', 'task_reward', 'referral_bonus_signup'].includes(t.type) || (t.amount > 0 && t.type !== 'deposit' && t.type !== 'principal_return')).length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>No profit payouts logged yet.</div>
+              ) : (
+                completedTxs
+                  .filter(t => ['scheme_payout', 'referral_bonus_invited', 'referral_commission_l1', 'referral_commission_l2', 'task_reward', 'referral_bonus_signup'].includes(t.type) || (t.amount > 0 && t.type !== 'deposit' && t.type !== 'principal_return'))
+                  .map((t) => {
+                    let sourceName = 'Other Earning';
+                    let detailText = '';
+                    if (t.type === 'scheme_payout') {
+                      sourceName = 'Investment Profit';
+                      detailText = t.scheme_name || 'Quick Deposit Scheme';
+                    } else if (t.type === 'referral_bonus_invited') {
+                      sourceName = 'Referral Profit';
+                      detailText = 'Invite Reward (₹50)';
+                    } else if (['referral_commission_l1', 'referral_commission_l2'].includes(t.type)) {
+                      sourceName = 'Daily Commission';
+                      detailText = t.type === 'referral_commission_l1' ? 'Level 1 Ref Commission' : 'Level 2 Ref Commission';
+                    } else if (['task_reward', 'referral_bonus_signup'].includes(t.type)) {
+                      sourceName = 'Bonus Reward';
+                      detailText = t.type === 'task_reward' ? 'Promotional Task' : 'Signup Bonus';
+                    }
+
+                    return (
+                      <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.01)', padding: '10px', borderRadius: '6px', borderBottom: '1px solid rgba(255,255,255,0.03)', fontSize: '0.75rem' }}>
+                        <div>
+                          <strong style={{ display: 'block', color: 'var(--text-primary)', textAlign: 'left' }}>{sourceName}</strong>
+                          <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem', display: 'block', textAlign: 'left' }}>{detailText}</span>
+                          <span style={{ color: 'var(--text-secondary)', fontSize: '0.65rem', display: 'block', marginTop: '2px', textAlign: 'left' }}>{new Date(t.created_at).toLocaleDateString()}</span>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <span style={{ color: 'var(--success)', fontWeight: 700 }}>+₹{t.amount.toFixed(2)}</span>
+                          <span style={{ display: 'block', fontSize: '0.65rem', color: 'var(--success)' }}>Completed</span>
+                        </div>
+                      </div>
+                    );
+                  })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL: PRINCIPAL BALANCE SCHEMES LIST --- */}
+      {showPrincipalDetailsPage && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '500px', padding: '24px', maxHeight: '80vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h3 style={{ fontSize: '1.2rem', fontWeight: 700 }} className="gradient-text">Invested Principal Details</h3>
+              <button
+                onClick={() => setShowPrincipalDetailsPage(false)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '1rem' }}
+              >
+                Close
+              </button>
+            </div>
+
+            {/* Total Principal Hero */}
+            <div style={{ textAlign: 'center', padding: '20px 0', borderBottom: '1px solid var(--glass-border)', marginBottom: '20px' }}>
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Total Active Principal</span>
+              <div style={{ fontSize: '2.5rem', fontWeight: 800, color: 'var(--accent-secondary)', marginTop: '4px' }}>
+                ₹{orders.reduce((acc, o) => acc + (o.status === 'active' && o.days_remaining > 0 ? o.price : 0), 0).toFixed(2)}
+              </div>
+            </div>
+
+            {/* Active Schemes List */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {orders.filter(o => o.status === 'active' && o.days_remaining > 0).length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>No active principal schemes found.</div>
+              ) : (
+                orders
+                  .filter(o => o.status === 'active' && o.days_remaining > 0)
+                  .map((order) => {
+                    const purchaseDate = new Date(order.created_at);
+                    let totalDays = 3;
+                    if (order.scheme_id) {
+                      const matchedScheme = adminSchemes?.find(s => s.id === order.scheme_id);
+                      if (matchedScheme) {
+                        totalDays = matchedScheme.days;
+                      }
+                    }
+                    const expectedMaturityDate = new Date(purchaseDate.getTime() + totalDays * 24 * 60 * 60 * 1000);
+
+                    return (
+                      <div key={order.id || order._id} className="glass-panel" style={{ padding: '14px', border: '1px solid var(--glass-border)', fontSize: '0.8rem', background: 'rgba(255,255,255,0.01)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.03)', paddingBottom: '6px' }}>
+                          <strong style={{ color: 'var(--text-primary)' }}>{order.scheme_name || 'Investment Scheme'}</strong>
+                          <span style={{ color: 'var(--success)', fontWeight: 700 }}>₹{order.price.toFixed(2)}</span>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span>Purchase Date:</span>
+                            <span style={{ color: 'var(--text-primary)' }}>{purchaseDate.toLocaleDateString()}</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span>Remaining Days:</span>
+                            <span style={{ color: 'var(--accent-secondary)', fontWeight: 600 }}>{order.days_remaining} Days</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span>Expected Maturity:</span>
+                            <span style={{ color: 'var(--text-primary)' }}>{expectedMaturityDate.toLocaleDateString()}</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px', borderTop: '1px solid rgba(255,255,255,0.03)', paddingTop: '4px' }}>
+                            <span>Current Status:</span>
+                            <span style={{ color: 'var(--success)', fontWeight: 700, textTransform: 'capitalize' }}>{order.status}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+              )}
+            </div>
           </div>
         </div>
       )}

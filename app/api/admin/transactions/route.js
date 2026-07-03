@@ -55,7 +55,7 @@ export async function GET(request) {
 
     const total = await Transaction.countDocuments(query);
     const rawTransactions = await Transaction.find(query)
-      .populate('user_id')
+      .populate('user_id', 'username phone support_id')
       .populate('virtual_account_id')
       .sort({ created_at: -1 })
       .skip(skip)

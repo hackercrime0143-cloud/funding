@@ -3,6 +3,9 @@ import connectDB from '@/lib/db';
 import { User, Transaction, Order } from '@/lib/models';
 import { getSessionFromCookies } from '@/lib/auth';
 
+let cachedStats = null;
+let cachedStatsExpiry = 0;
+
 export async function GET(request) {
   try {
     await connectDB();
@@ -16,6 +19,14 @@ export async function GET(request) {
     const adminCheck = await User.findById(session.id);
     if (!adminCheck || adminCheck.role !== 'admin') {
       return NextResponse.json({ error: 'Access denied. Admins only.' }, { status: 403 });
+    }
+
+    const cacheDurationMs = 15 * 1000;
+    if (cachedStats && Date.now() < cachedStatsExpiry) {
+      return NextResponse.json({
+        success: true,
+        stats: cachedStats
+      });
     }
 
     // 1. Total registered users
@@ -76,19 +87,24 @@ export async function GET(request) {
     ]);
     const activeInvestments = activeInvestmentsSum[0] ? activeInvestmentsSum[0].total : 0;
 
+    const stats = {
+      totalUsers,
+      totalUserBalances,
+      totalDeposits,
+      pendingDepositsCount,
+      pendingDepositsTotal,
+      totalWithdrawals,
+      pendingWithdrawalsCount,
+      pendingWithdrawalsTotal,
+      activeInvestments
+    };
+
+    cachedStats = stats;
+    cachedStatsExpiry = Date.now() + cacheDurationMs;
+
     return NextResponse.json({
       success: true,
-      stats: {
-        totalUsers,
-        totalUserBalances,
-        totalDeposits,
-        pendingDepositsCount,
-        pendingDepositsTotal,
-        totalWithdrawals,
-        pendingWithdrawalsCount,
-        pendingWithdrawalsTotal,
-        activeInvestments
-      }
+      stats
     });
   } catch (error) {
     console.error('Fetch admin stats error:', error);

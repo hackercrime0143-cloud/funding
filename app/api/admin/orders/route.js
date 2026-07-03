@@ -54,7 +54,7 @@ export async function GET(request) {
 
     const total = await Order.countDocuments(query);
     const rawOrders = await Order.find(query)
-      .populate('user_id')
+      .populate('user_id', 'username phone support_id')
       .populate('scheme_id')
       .populate('virtual_account_id')
       .sort({ created_at: -1 })

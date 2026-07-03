@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
-import { User, Order, Transaction, BankDetails, Settings } from '@/lib/models';
+import { User, Order, Transaction, BankDetails, Settings, Scheme } from '@/lib/models';
 import { getSessionFromCookies } from '@/lib/auth';
 
 export async function GET(request) {
@@ -51,7 +51,8 @@ export async function GET(request) {
           user_id: session.id,
           type: 'scheme_payout',
           amount: order.daily_income * daysToPay,
-          status: 'completed'
+          status: 'completed',
+          order_id: order._id
         });
 
         balanceChange += creditAmount;
@@ -73,6 +74,39 @@ export async function GET(request) {
       // User is suspended — force logout
       return NextResponse.json({ error: 'Your account has been suspended. Please contact support.' }, { status: 403 });
     }
+
+    // Calculate smart withdrawal limits
+    const freshOrders = await Order.find({ user_id: session.id, status: { $in: ['active', 'expired_pending_match', 'completed'] } });
+
+    let lockedBalance = 0;
+    let hasBigScheme = false;
+    let hasSmallScheme = false;
+
+    for (const order of freshOrders) {
+      if (order.price >= 200) {
+        hasBigScheme = true;
+        if (order.status === 'active') {
+          lockedBalance += order.price;
+        }
+      } else {
+        hasSmallScheme = true;
+        if (order.status === 'active') {
+          let totalDays = 3;
+          if (order.scheme_id) {
+            const scheme = await Scheme.findById(order.scheme_id);
+            if (scheme) {
+              totalDays = scheme.days;
+            }
+          }
+          const paidDays = totalDays - order.days_remaining;
+          const paidAmount = order.price + order.daily_income * paidDays;
+          lockedBalance += paidAmount;
+        }
+      }
+    }
+
+    const withdrawableBalance = Math.max(0, user.wallet_balance - lockedBalance);
+    const minWithdrawal = (hasBigScheme || freshOrders.length === 0) ? 200 : 0;
 
     // Get linking status
     const bankDetails = await BankDetails.findOne({ user_id: session.id });
@@ -122,6 +156,9 @@ export async function GET(request) {
         supportId: user.support_id || null,
         referralCode: user.referral_code,
         walletBalance: user.wallet_balance,
+        lockedBalance,
+        withdrawableBalance,
+        minWithdrawal,
         isBankLinked: !!bankDetails,
         isTelegramChannelJoined: user.is_telegram_channel_joined || false,
         isTelegramGroupJoined: user.is_telegram_group_joined || false,
