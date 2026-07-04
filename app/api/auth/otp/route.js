@@ -25,7 +25,7 @@ export async function POST(request) {
 
     if (recentRequests.length >= 2) {
       return NextResponse.json({ 
-        error: 'Security Limit: You can only receive up to 2 OTPs in 24 hours. Please try again later.' 
+        error: 'Please try again after 24 hours.' 
       }, { status: 429 });
     }
 

@@ -177,9 +177,20 @@ export default function FastPayApp() {
   // Force Update
   const [showForceUpdate, setShowForceUpdate] = useState(false);
   const [serverAppVersion, setServerAppVersion] = useState('');
+  const [pwaUpdateNotes, setPwaUpdateNotes] = useState('');
+  const [adminPwaUpdateNotes, setAdminPwaUpdateNotes] = useState('');
 
   // Track image load errors to show "No Screenshot Uploaded" instead of broken images
   const [brokenImages, setBrokenImages] = useState({});
+
+  // Real-time ticking state updated every second
+  const [nowTime, setNowTime] = useState(Date.now());
+
+  // Deposit & Withdrawal Details Page/Modal States
+  const [showDepositDetailsPage, setShowDepositDetailsPage] = useState(false);
+  const [showWithdrawalDetailsPage, setShowWithdrawalDetailsPage] = useState(false);
+  const [userDepositPage, setUserDepositPage] = useState(1);
+  const [userWithdrawalPage, setUserWithdrawalPage] = useState(1);
 
 
   const [adminVirtualAccounts, setAdminVirtualAccounts] = useState([]);
@@ -353,7 +364,6 @@ export default function FastPayApp() {
     }
   }, [newSchemePrice, newSchemeRate, newSchemeDays]);
 
-  // Read referral code from query params if present (e.g. ?ref=CODE)
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
@@ -363,6 +373,14 @@ export default function FastPayApp() {
         setIsLogin(false); // Show registration form
       }
     }
+  }, []);
+
+  // Global live countdown ticker hook
+  useEffect(() => {
+    const ticker = setInterval(() => {
+      setNowTime(Date.now());
+    }, 1000);
+    return () => clearInterval(ticker);
   }, []);
   const lastSeenTxIdsRef = useRef(new Set());
 
@@ -376,6 +394,64 @@ export default function FastPayApp() {
         Notification.requestPermission();
       }
     }
+
+    const registerPush = async () => {
+      if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+        console.log('[FastPay Push] Push notifications not supported on this browser/device');
+        return;
+      }
+
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        let permission = Notification.permission;
+        if (permission === 'default') {
+          permission = await Notification.requestPermission();
+        }
+
+        if (permission !== 'granted') {
+          console.log('[FastPay Push] Notification permission denied');
+          return;
+        }
+
+        // Fetch VAPID public key
+        const keyRes = await fetch('/api/admin/vapid-public-key');
+        const keyData = await keyRes.json();
+        if (!keyData.publicKey) {
+          console.error('[FastPay Push] No VAPID public key returned');
+          return;
+        }
+
+        // Convert key to Uint8Array
+        const padding = '='.repeat((4 - keyData.publicKey.length % 4) % 4);
+        const base64 = (keyData.publicKey + padding)
+          .replace(/\-/g, '+')
+          .replace(/_/g, '/');
+
+        const rawData = window.atob(base64);
+        const outputArray = new Uint8Array(rawData.length);
+        for (let i = 0; i < rawData.length; ++i) {
+          outputArray[i] = rawData.charCodeAt(i);
+        }
+
+        // Subscribe
+        const subscription = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: outputArray
+        });
+
+        // Send to server
+        await fetch('/api/admin/subscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subscription })
+        });
+        console.log('[FastPay Push] Push subscription registered successfully!');
+      } catch (err) {
+        console.error('[FastPay Push] Failed to register push subscription:', err);
+      }
+    };
+
+    registerPush();
 
     // Populate initial seen IDs so we don't alert on existing ones on page load
     const initSeen = async () => {
@@ -391,7 +467,7 @@ export default function FastPayApp() {
     };
     initSeen();
 
-    // Background polling loop
+    // Background polling loop as backup when application is active
     const interval = setInterval(async () => {
       try {
         const res = await fetch('/api/admin/transactions?page=1&limit=20&filter=pending');
@@ -444,6 +520,7 @@ export default function FastPayApp() {
       if (data.pwaSettings?.version) {
         const sv = data.pwaSettings.version;
         setServerAppVersion(sv);
+        setPwaUpdateNotes(data.pwaSettings.updateNotes || '');
         const localVersion = localStorage.getItem('fp_app_version');
         if (localVersion && localVersion !== sv) {
           setShowForceUpdate(true);
@@ -473,6 +550,7 @@ export default function FastPayApp() {
           setPwaSplashScreen(data.pwaSettings.splashScreen || '/icon-512.png');
           setPwaInstallPromptText(data.pwaSettings.installPromptText || 'Install FastPay to your device home screen for a native, fast, and full-screen mobile app experience.');
           setPwaVersion(data.pwaSettings.version || '1.0.0');
+          setPwaUpdateNotes(data.pwaSettings.updateNotes || '');
 
           setAdminPwaName(data.pwaSettings.name || 'FastPay');
           setAdminPwaShortName(data.pwaSettings.shortName || 'FastPay');
@@ -482,6 +560,7 @@ export default function FastPayApp() {
           setAdminPwaSplashScreen(data.pwaSettings.splashScreen || '/icon-512.png');
           setAdminPwaInstallPromptText(data.pwaSettings.installPromptText || 'Install FastPay to your device home screen for a native, fast, and full-screen mobile app experience.');
           setAdminPwaVersion(data.pwaSettings.version || '1.0.0');
+          setAdminPwaUpdateNotes(data.pwaSettings.updateNotes || '');
         }
         if (data.user.bankDetails) {
           setAccountNumber(data.user.bankDetails.account_number);
@@ -698,7 +777,8 @@ export default function FastPayApp() {
             icon: adminPwaIcon,
             splashScreen: adminPwaSplashScreen,
             installPromptText: adminPwaInstallPromptText,
-            version: adminPwaVersion
+            version: adminPwaVersion,
+            updateNotes: adminPwaUpdateNotes
           }
         })
       });
@@ -713,6 +793,7 @@ export default function FastPayApp() {
         setPwaSplashScreen(adminPwaSplashScreen);
         setPwaInstallPromptText(adminPwaInstallPromptText);
         setPwaVersion(adminPwaVersion);
+        setPwaUpdateNotes(adminPwaUpdateNotes);
       } else {
         alert(data.error || 'Failed to save PWA settings.');
       }
@@ -1685,6 +1766,53 @@ export default function FastPayApp() {
     return feed.sort((a, b) => b.date - a.date);
   };
 
+  // --- MANDATORY FORCE UPDATE CHECK ---
+  if (showForceUpdate) {
+    return (
+      <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.97)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px', fontFamily: 'Outfit, sans-serif' }}>
+        <div className="glass-panel animate-fade-in" style={{ width: '100%', maxWidth: '380px', padding: '32px', textAlign: 'center', border: '1px solid rgba(162,155,254,0.4)', background: 'var(--bg-secondary)', borderRadius: '12px' }}>
+          <div style={{ fontSize: '3rem', marginBottom: '16px' }}>🚀</div>
+          <h2 style={{ fontSize: '1.4rem', fontWeight: 800, marginBottom: '10px' }} className="gradient-text">New Version Available</h2>
+          
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.03)', padding: '6px 12px', borderRadius: '6px', display: 'inline-block', marginBottom: '16px' }}>
+            Version {serverAppVersion || pwaVersion || '1.0.0'}
+          </div>
+          
+          <div style={{ textAlign: 'left', marginBottom: '24px', background: 'rgba(0,0,0,0.2)', padding: '12px', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px', fontWeight: 600 }}>What's New:</span>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)', whiteSpace: 'pre-wrap', lineHeight: '1.4', maxHeight: '120px', overflowY: 'auto' }}>
+              {pwaUpdateNotes || "• Performance improvements and general bug fixes.\n• Optimized system security.\n• Live countdown improvements."}
+            </div>
+          </div>
+
+          <button
+            className="gradient-btn"
+            style={{ width: '100%', padding: '14px', borderRadius: '12px', fontSize: '1rem', fontWeight: 700, cursor: 'pointer' }}
+            onClick={async () => {
+              try {
+                if ('caches' in window) {
+                  const cacheKeys = await caches.keys();
+                  await Promise.all(cacheKeys.map(key => caches.delete(key)));
+                }
+                if ('serviceWorker' in navigator) {
+                  const regs = await navigator.serviceWorker.getRegistrations();
+                  await Promise.all(regs.map(r => r.unregister()));
+                }
+                localStorage.setItem('fp_app_version', serverAppVersion);
+                window.location.reload(true);
+              } catch (e) {
+                localStorage.setItem('fp_app_version', serverAppVersion);
+                window.location.reload();
+              }
+            }}
+          >
+            Update Now
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // Rendering Helper: Device Restriction Block
   if (isDeviceBlocked) {
     return (
@@ -2190,7 +2318,7 @@ export default function FastPayApp() {
                   let cooldownUntil = schemeCooldowns[scheme.id] ? new Date(schemeCooldowns[scheme.id]) : null;
                   if (!cooldownUntil) {
                     // Derive from orders: find most recent active/completed/confirmation_pending order with same scheme_id within 24h
-                    const cutoff24h = Date.now() - 24 * 60 * 60 * 1000;
+                    const cutoff24h = nowTime - 24 * 60 * 60 * 1000;
                     const recentOrder = orders.find(o =>
                       o.scheme_id === scheme.id &&
                       ['active', 'expired_pending_match', 'completed', 'confirmation_pending'].includes(o.status) &&
@@ -2200,12 +2328,12 @@ export default function FastPayApp() {
                       cooldownUntil = new Date(new Date(recentOrder.created_at).getTime() + 24 * 60 * 60 * 1000);
                     }
                   }
-                  const now = Date.now();
-                  const isOnCooldown = cooldownUntil && cooldownUntil.getTime() > now;
-                  const cooldownRemainSec = isOnCooldown ? Math.floor((cooldownUntil.getTime() - now) / 1000) : 0;
+                  const isOnCooldown = cooldownUntil && cooldownUntil.getTime() > nowTime;
+                  const cooldownRemainSec = isOnCooldown ? Math.max(0, Math.floor((cooldownUntil.getTime() - nowTime) / 1000)) : 0;
                   const cdH = Math.floor(cooldownRemainSec / 3600);
                   const cdM = Math.floor((cooldownRemainSec % 3600) / 60);
                   const cdS = cooldownRemainSec % 60;
+                  const pad = (num) => String(num).padStart(2, '0');
 
                   return (
                     <div
@@ -2221,7 +2349,7 @@ export default function FastPayApp() {
                         </div>
                         {isOnCooldown && (
                           <div style={{ fontSize: '0.72rem', color: 'var(--gold)', marginTop: '4px', fontWeight: 600 }}>
-                            ⏳ Available in {cdH}h {cdM}m {cdS}s
+                            ⏳ Available in {pad(cdH)}h {pad(cdM)}m {pad(cdS)}s
                           </div>
                         )}
                       </div>
@@ -2689,7 +2817,11 @@ export default function FastPayApp() {
             )}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', borderTop: '1px solid var(--glass-border)', paddingTop: '16px' }}>
-              <div>
+              <div
+                onClick={() => { setShowDepositDetailsPage(true); setUserDepositPage(1); }}
+                className="interactive-card"
+                style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', background: 'rgba(255,255,255,0.01)', border: '1px solid transparent', transition: 'all 0.2s' }}
+              >
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
                   <ArrowDownLeft size={12} color="var(--success)" /> Today's Deposit
                 </span>
@@ -2701,7 +2833,11 @@ export default function FastPayApp() {
                 </div>
               </div>
 
-              <div>
+              <div
+                onClick={() => { setShowWithdrawalDetailsPage(true); setUserWithdrawalPage(1); }}
+                className="interactive-card"
+                style={{ padding: '8px', borderRadius: '8px', cursor: 'pointer', background: 'rgba(255,255,255,0.01)', border: '1px solid transparent', transition: 'all 0.2s' }}
+              >
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
                   <ArrowUpRight size={12} color="var(--error)" /> Today's Withdrawal
                 </span>
@@ -4435,7 +4571,7 @@ export default function FastPayApp() {
 
                       const purchaseDate = new Date(order.created_at);
                       const maturityDate = new Date(purchaseDate.getTime() + totalDays * 24 * 60 * 60 * 1000);
-                      const remainMs = Math.max(0, maturityDate.getTime() - Date.now());
+                      const remainMs = Math.max(0, maturityDate.getTime() - nowTime);
                       const remainH = Math.floor(remainMs / 3600000);
                       const remainM = Math.floor((remainMs % 3600000) / 60000);
 
@@ -5457,13 +5593,24 @@ export default function FastPayApp() {
                     />
                   </div>
                 </div>
-                <div>
+                 <div>
                   <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Install Prompt Text</label>
                   <textarea
                     rows={2}
                     className="form-input"
                     value={adminPwaInstallPromptText}
                     onChange={(e) => setAdminPwaInstallPromptText(e.target.value)}
+                    style={{ fontSize: '0.8rem', width: '100%', resize: 'vertical', fontFamily: 'inherit', marginBottom: '8px' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Update Release Notes</label>
+                  <textarea
+                    rows={3}
+                    placeholder="Enter what's new in this version..."
+                    className="form-input"
+                    value={adminPwaUpdateNotes}
+                    onChange={(e) => setAdminPwaUpdateNotes(e.target.value)}
                     style={{ fontSize: '0.8rem', width: '100%', resize: 'vertical', fontFamily: 'inherit' }}
                   />
                 </div>
@@ -5794,7 +5941,7 @@ export default function FastPayApp() {
                 const totalDays = order.total_payout && order.daily_income > 0 ? Math.round(order.total_payout / order.daily_income) : 3;
                 const purchaseDate = new Date(order.created_at);
                 const maturityDate = new Date(purchaseDate.getTime() + totalDays * 24 * 60 * 60 * 1000);
-                const remainMs = Math.max(0, maturityDate.getTime() - Date.now());
+                const remainMs = Math.max(0, maturityDate.getTime() - nowTime);
                 const remainH = Math.floor(remainMs / 3600000);
                 const remainM = Math.floor((remainMs % 3600000) / 60000);
                 const progressPct = Math.round(((totalDays - order.days_remaining) / totalDays) * 100);
@@ -5839,10 +5986,11 @@ export default function FastPayApp() {
         const totalRatePct = totalDays > 0 && o.daily_income > 0 ? ((o.daily_income * totalDays / o.price) * 100).toFixed(2) : '—';
         const purchaseDate = new Date(o.created_at);
         const completionDate = new Date(purchaseDate.getTime() + totalDays * 24 * 60 * 60 * 1000);
-        const remainMs = Math.max(0, completionDate.getTime() - Date.now());
+        const remainMs = Math.max(0, completionDate.getTime() - nowTime);
         const remainH = Math.floor(remainMs / 3600000);
         const remainM = Math.floor((remainMs % 3600000) / 60000);
         const remainS = Math.floor((remainMs % 60000) / 1000);
+        const pad = (num) => String(num).padStart(2, '0');
         const statusColor = o.status === 'active' ? 'var(--success)' : o.status === 'completed' ? '#a29bfe' : 'var(--gold)';
         return (
           <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.92)', zIndex: 1300, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={() => setSelectedWalletScheme(null)}>
@@ -5862,7 +6010,7 @@ export default function FastPayApp() {
                   ['Purchase Date', purchaseDate.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })],
                   ['Completion Date', completionDate.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })],
                   ['Days Remaining', `${o.days_remaining} of ${totalDays} days`],
-                  ['Live Countdown', `${remainH}h ${remainM}m ${remainS}s`],
+                  ['Live Countdown', `${pad(remainH)}h ${pad(remainM)}m ${pad(remainS)}s`],
                   ['Current Status', o.status],
                 ].map(([label, value]) => (
                   <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px' }}>
@@ -5876,42 +6024,6 @@ export default function FastPayApp() {
           </div>
         );
       })()}
-
-      {/* --- FORCE UPDATE MODAL --- */}
-      {showForceUpdate && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.97)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
-          <div className="glass-panel animate-fade-in" style={{ width: '100%', maxWidth: '380px', padding: '32px', textAlign: 'center', border: '1px solid rgba(162,155,254,0.4)' }}>
-            <div style={{ fontSize: '3rem', marginBottom: '16px' }}>🚀</div>
-            <h2 style={{ fontSize: '1.4rem', fontWeight: 800, marginBottom: '10px' }} className="gradient-text">New Version Available</h2>
-            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.5', marginBottom: '28px' }}>
-              A new version of the application is available.<br />Please update to continue using FastPay.
-            </p>
-            <button
-              className="gradient-btn"
-              style={{ padding: '14px 28px', borderRadius: '12px', fontSize: '1rem', fontWeight: 700 }}
-              onClick={async () => {
-                try {
-                  if ('caches' in window) {
-                    const cacheKeys = await caches.keys();
-                    await Promise.all(cacheKeys.map(key => caches.delete(key)));
-                  }
-                  if ('serviceWorker' in navigator) {
-                    const regs = await navigator.serviceWorker.getRegistrations();
-                    await Promise.all(regs.map(r => r.unregister()));
-                  }
-                  localStorage.setItem('fp_app_version', serverAppVersion);
-                  window.location.reload(true);
-                } catch (e) {
-                  localStorage.setItem('fp_app_version', serverAppVersion);
-                  window.location.reload();
-                }
-              }}
-            >
-              Update Now
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* --- TELEGRAM GATE MODAL --- */}
       {showTelegramGate && (
@@ -6733,6 +6845,194 @@ export default function FastPayApp() {
           </div>
         </div>
       )}
+
+      {/* --- MODAL: TODAY'S DEPOSIT DETAILS PAGE --- */}
+      {showDepositDetailsPage && (() => {
+        const userDeposits = txHistory.filter(t => t.type === 'deposit');
+        userDeposits.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+        const totalCompleted = userDeposits.filter(d => d.status === 'completed').reduce((acc, d) => acc + d.amount, 0);
+        const totalPending = userDeposits.filter(d => ['pending', 'confirmation_pending'].includes(d.status)).reduce((acc, d) => acc + d.amount, 0);
+        const totalRejected = userDeposits.filter(d => ['rejected', 'failed', 'cancelled'].includes(d.status)).reduce((acc, d) => acc + d.amount, 0);
+
+        const itemsPerPage = 8;
+        const totalPages = Math.ceil(userDeposits.length / itemsPerPage) || 1;
+        const paginatedList = userDeposits.slice((userDepositPage - 1) * itemsPerPage, userDepositPage * itemsPerPage);
+
+        return (
+          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', fontFamily: 'Outfit, sans-serif' }}>
+            <div className="glass-panel animate-fade-in" style={{ width: '100%', maxWidth: '520px', padding: '24px', maxHeight: '85vh', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <h3 style={{ fontSize: '1.2rem', fontWeight: 700 }} className="gradient-text">Deposit Analytics Summary</h3>
+                <button
+                  onClick={() => setShowDepositDetailsPage(false)}
+                  style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '1rem' }}
+                >
+                  Close
+                </button>
+              </div>
+
+              {/* Grid of stats */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '20px' }}>
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid var(--glass-border)', textAlign: 'center' }}>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Approved Deposits</span>
+                  <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--success)', marginTop: '4px' }}>₹{totalCompleted.toFixed(2)}</div>
+                </div>
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid var(--glass-border)', textAlign: 'center' }}>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Pending Deposits</span>
+                  <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--gold)', marginTop: '4px' }}>₹{totalPending.toFixed(2)}</div>
+                </div>
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid var(--glass-border)', textAlign: 'center', gridColumn: 'span 2' }}>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Rejected Deposits</span>
+                  <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--error)', marginTop: '4px' }}>₹{totalRejected.toFixed(2)}</div>
+                </div>
+              </div>
+
+              <h4 style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: '10px', color: 'var(--text-primary)' }}>Deposit Transaction History</h4>
+
+              {userDeposits.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>No deposit history found.</div>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {paginatedList.map(item => (
+                      <div key={item.id} style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--glass-border)', padding: '12px', borderRadius: '8px', fontSize: '0.8rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>{new Date(item.created_at).toLocaleString()}</span>
+                          <strong style={{ color: item.status === 'completed' ? 'var(--success)' : ['pending', 'confirmation_pending'].includes(item.status) ? 'var(--gold)' : 'var(--error)' }}>
+                            {item.status === 'completed' ? 'Approved' : ['pending', 'confirmation_pending'].includes(item.status) ? 'Pending' : 'Rejected'}
+                          </strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>TxID: {item.id}</span>
+                          <strong style={{ fontSize: '0.9rem', color: 'var(--text-primary)' }}>₹{item.amount.toFixed(2)}</strong>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Pagination */}
+                  {totalPages > 1 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '16px' }}>
+                      <button
+                        onClick={() => setUserDepositPage(prev => Math.max(1, prev - 1))}
+                        disabled={userDepositPage === 1}
+                        className="gradient-btn"
+                        style={{ padding: '6px 12px', fontSize: '0.75rem', borderRadius: '6px', opacity: userDepositPage === 1 ? 0.5 : 1 }}
+                      >
+                        Previous
+                      </button>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Page {userDepositPage} of {totalPages}</span>
+                      <button
+                        onClick={() => setUserDepositPage(prev => Math.min(totalPages, prev + 1))}
+                        disabled={userDepositPage === totalPages}
+                        className="gradient-btn"
+                        style={{ padding: '6px 12px', fontSize: '0.75rem', borderRadius: '6px', opacity: userDepositPage === totalPages ? 0.5 : 1 }}
+                      >
+                        Next
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* --- MODAL: TODAY'S WITHDRAWAL DETAILS PAGE --- */}
+      {showWithdrawalDetailsPage && (() => {
+        const userWithdrawals = txHistory.filter(t => t.type === 'withdrawal');
+        userWithdrawals.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+        const totalCompleted = userWithdrawals.filter(d => d.status === 'completed').reduce((acc, d) => acc + Math.abs(d.amount), 0);
+        const totalPending = userWithdrawals.filter(d => d.status === 'pending').reduce((acc, d) => acc + Math.abs(d.amount), 0);
+        const totalRejected = userWithdrawals.filter(d => ['rejected', 'failed', 'cancelled'].includes(d.status)).reduce((acc, d) => acc + Math.abs(d.amount), 0);
+
+        const itemsPerPage = 8;
+        const totalPages = Math.ceil(userWithdrawals.length / itemsPerPage) || 1;
+        const paginatedList = userWithdrawals.slice((userWithdrawalPage - 1) * itemsPerPage, userWithdrawalPage * itemsPerPage);
+
+        return (
+          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', fontFamily: 'Outfit, sans-serif' }}>
+            <div className="glass-panel animate-fade-in" style={{ width: '100%', maxWidth: '520px', padding: '24px', maxHeight: '85vh', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <h3 style={{ fontSize: '1.2rem', fontWeight: 700 }} className="gradient-text">Withdrawal Analytics Summary</h3>
+                <button
+                  onClick={() => setShowWithdrawalDetailsPage(false)}
+                  style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '1rem' }}
+                >
+                  Close
+                </button>
+              </div>
+
+              {/* Grid of stats */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '20px' }}>
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid var(--glass-border)', textAlign: 'center' }}>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Approved Withdrawals</span>
+                  <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--error)', marginTop: '4px' }}>₹{totalCompleted.toFixed(2)}</div>
+                </div>
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid var(--glass-border)', textAlign: 'center' }}>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Pending Withdrawals</span>
+                  <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--gold)', marginTop: '4px' }}>₹{totalPending.toFixed(2)}</div>
+                </div>
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid var(--glass-border)', textAlign: 'center', gridColumn: 'span 2' }}>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Rejected Withdrawals</span>
+                  <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--error)', marginTop: '4px' }}>₹{totalRejected.toFixed(2)}</div>
+                </div>
+              </div>
+
+              <h4 style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: '10px', color: 'var(--text-primary)' }}>Withdrawal Transaction History</h4>
+
+              {userWithdrawals.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>No withdrawal history found.</div>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {paginatedList.map(item => (
+                      <div key={item.id} style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--glass-border)', padding: '12px', borderRadius: '8px', fontSize: '0.8rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>{new Date(item.created_at).toLocaleString()}</span>
+                          <strong style={{ color: item.status === 'completed' ? 'var(--success)' : item.status === 'pending' ? 'var(--gold)' : 'var(--error)' }}>
+                            {item.status === 'completed' ? 'Approved' : item.status === 'pending' ? 'Pending' : 'Rejected'}
+                          </strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>TxID: {item.id}</span>
+                          <strong style={{ fontSize: '0.9rem', color: 'var(--text-primary)' }}>₹{Math.abs(item.amount).toFixed(2)}</strong>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Pagination */}
+                  {totalPages > 1 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '16px' }}>
+                      <button
+                        onClick={() => setUserWithdrawalPage(prev => Math.max(1, prev - 1))}
+                        disabled={userWithdrawalPage === 1}
+                        className="gradient-btn"
+                        style={{ padding: '6px 12px', fontSize: '0.75rem', borderRadius: '6px', opacity: userWithdrawalPage === 1 ? 0.5 : 1 }}
+                      >
+                        Previous
+                      </button>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Page {userWithdrawalPage} of {totalPages}</span>
+                      <button
+                        onClick={() => setUserWithdrawalPage(prev => Math.min(totalPages, prev + 1))}
+                        disabled={userWithdrawalPage === totalPages}
+                        className="gradient-btn"
+                        style={{ padding: '6px 12px', fontSize: '0.75rem', borderRadius: '6px', opacity: userWithdrawalPage === totalPages ? 0.5 : 1 }}
+                      >
+                        Next
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* --- MODAL 3: UNIFIED HISTORY DETAIL POPUP --- */}
       {selectedHistoryItem && (

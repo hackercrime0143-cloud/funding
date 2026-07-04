@@ -19,7 +19,8 @@ export async function GET(request) {
           'pwa_icon',
           'pwa_splash_screen',
           'pwa_install_prompt_text',
-          'pwa_version'
+          'pwa_version',
+          'pwa_update_notes'
         ] }
       });
       const settingsMap = {};
@@ -34,7 +35,8 @@ export async function GET(request) {
         icon: settingsMap['pwa_icon'] || '/icon-192.png',
         splashScreen: settingsMap['pwa_splash_screen'] || '/icon-512.png',
         installPromptText: settingsMap['pwa_install_prompt_text'] || 'Install FastPay to your device home screen for a native, fast, and full-screen mobile app experience.',
-        version: settingsMap['pwa_version'] || '1.0.0'
+        version: settingsMap['pwa_version'] || '1.0.0',
+        updateNotes: settingsMap['pwa_update_notes'] || ''
       };
       return NextResponse.json({ error: 'Unauthorized session.', pwaSettings }, { status: 401 });
     }
@@ -153,7 +155,8 @@ export async function GET(request) {
         'pwa_icon',
         'pwa_splash_screen',
         'pwa_install_prompt_text',
-        'pwa_version'
+        'pwa_version',
+        'pwa_update_notes'
       ] }
     });
 
@@ -171,7 +174,8 @@ export async function GET(request) {
       icon: settingsMap['pwa_icon'] || '/icon-192.png',
       splashScreen: settingsMap['pwa_splash_screen'] || '/icon-512.png',
       installPromptText: settingsMap['pwa_install_prompt_text'] || 'Install FastPay to your device home screen for a native, fast, and full-screen mobile app experience.',
-      version: settingsMap['pwa_version'] || '1.0.0'
+      version: settingsMap['pwa_version'] || '1.0.0',
+      updateNotes: settingsMap['pwa_update_notes'] || ''
     };
 
     return NextResponse.json({

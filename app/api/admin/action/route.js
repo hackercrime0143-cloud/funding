@@ -225,7 +225,7 @@ export async function POST(request) {
     }
 
     else if (action === 'savePwaSettings') {
-      const { name, shortName, themeColor, backgroundColor, icon, splashScreen, installPromptText, version } = payload;
+      const { name, shortName, themeColor, backgroundColor, icon, splashScreen, installPromptText, version, updateNotes } = payload;
       
       const iconUrl = icon ? await saveBase64Image(icon) : undefined;
       const splashScreenUrl = splashScreen ? await saveBase64Image(splashScreen) : undefined;
@@ -238,7 +238,8 @@ export async function POST(request) {
         { key: 'pwa_icon', value: iconUrl },
         { key: 'pwa_splash_screen', value: splashScreenUrl },
         { key: 'pwa_install_prompt_text', value: installPromptText },
-        { key: 'pwa_version', value: version }
+        { key: 'pwa_version', value: version },
+        { key: 'pwa_update_notes', value: updateNotes }
       ];
 
       for (const update of updates) {
