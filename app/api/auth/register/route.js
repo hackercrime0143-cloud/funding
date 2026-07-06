@@ -51,11 +51,11 @@ export async function POST(request) {
     }
 
     const now = new Date();
-    if (otpRecord.code !== otp) {
-      return NextResponse.json({ error: 'Invalid OTP code.' }, { status: 400 });
-    }
     if (now > new Date(otpRecord.expires_at)) {
-      return NextResponse.json({ error: 'OTP has expired. Please request a new one.' }, { status: 400 });
+      return NextResponse.json({ error: 'This OTP has expired. Please request a new OTP.' }, { status: 400 });
+    }
+    if (otpRecord.code !== otp) {
+      return NextResponse.json({ error: 'Invalid OTP. Please enter the correct OTP.' }, { status: 400 });
     }
 
     // Delete verified OTP to prevent reuse

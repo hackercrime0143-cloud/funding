@@ -12,7 +12,6 @@ export async function POST(request) {
     }
 
     const now = new Date();
-    const cutoff24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
     // Find or initialize OTP record
     let otpRecord = await Otp.findOne({ phone });
@@ -20,18 +19,22 @@ export async function POST(request) {
       otpRecord = new Otp({ phone, otp_requests: [] });
     }
 
-    // Filter requests in the last 24 hours
-    const recentRequests = otpRecord.otp_requests.filter(reqTime => new Date(reqTime) >= cutoff24h);
-
-    if (recentRequests.length >= 2) {
-      return NextResponse.json({ 
-        error: 'Please try again after 24 hours.' 
-      }, { status: 429 });
+    // Cooldown check (60 seconds between requests)
+    if (otpRecord.otp_requests && otpRecord.otp_requests.length > 0) {
+      const lastRequest = new Date(otpRecord.otp_requests[otpRecord.otp_requests.length - 1]);
+      const timeSinceLast = now.getTime() - lastRequest.getTime();
+      const cooldownMs = 60 * 1000;
+      if (timeSinceLast < cooldownMs) {
+        const secondsRemaining = Math.ceil((cooldownMs - timeSinceLast) / 1000);
+        return NextResponse.json({ 
+          error: `Please wait ${secondsRemaining} seconds before requesting a new OTP.` 
+        }, { status: 429 });
+      }
     }
 
     // Generate a 6-digit random code
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = new Date(now.getTime() + 60 * 1000); // 60 seconds expiry
+    const expiresAt = new Date(now.getTime() + 5 * 60 * 1000); // 5 minutes expiry
 
     // Update OTP record
     otpRecord.code = otpCode;
@@ -48,7 +51,7 @@ export async function POST(request) {
 
     if (apiKey) {
       try {
-        const smsUrl = `https://www.fast2sms.com/dev/bulkV2?authorization=${encodeURIComponent(apiKey)}&route=q&message=${encodeURIComponent(`Your FastPay verification OTP code is ${otpCode}. Valid for 1 minute.`)}&numbers=${encodeURIComponent(phone)}`;
+        const smsUrl = `https://www.fast2sms.com/dev/bulkV2?authorization=${encodeURIComponent(apiKey)}&route=q&message=${encodeURIComponent(`Your FastPay verification OTP code is ${otpCode}. Valid for 5 minutes.`)}&numbers=${encodeURIComponent(phone)}`;
         const smsResponse = await fetch(smsUrl);
         const smsData = await smsResponse.json();
         console.log('[FastPay Fast2SMS API Response]', smsData);
