@@ -108,21 +108,28 @@ async function run() {
 
   // 3. Find or create users
   console.log('Finding/creating test users...');
-  let u1 = await User.findOne({ username: 'official_jangid_g' });
+  // Clean up any old created official_jangid_g with the wrong phone numbers
+  await User.deleteMany({ username: 'official_jangid_g', phone: { $ne: '9999138494' } });
+
+  let u1 = await User.findOne({ phone: '9999138494' });
   if (!u1) {
-    const hp = await bcrypt.hash('Password123!', 10);
+    const hp = await bcrypt.hash('md786786', 10);
     u1 = await User.create({
       username: 'official_jangid_g',
       email: 'official_jangid_g@test.com',
-      phone: '9876543210',
+      phone: '9999138494',
       password: hp,
       role: 'user',
       support_id: '311962',
       referral_code: 'REF311962'
     });
-    console.log('Created user: official_jangid_g');
+    console.log('Created user: official_jangid_g with phone 9999138494');
   } else {
-    console.log('User official_jangid_g already exists.');
+    console.log('User official_jangid_g with phone 9999138494 already exists.');
+    // Make sure support_id is set to 311962 and username is official_jangid_g
+    u1.username = 'official_jangid_g';
+    u1.support_id = '311962';
+    await u1.save();
   }
 
   let u2 = await User.findOne({ username: 'john' });
@@ -141,11 +148,9 @@ async function run() {
     console.log('Created user: john (referred by official_jangid_g)');
   } else {
     console.log('User john already exists.');
-    if (!u2.referred_by_id) {
-      u2.referred_by_id = u1._id;
-      await u2.save();
-      console.log('Linked john to be referred by official_jangid_g.');
-    }
+    u2.referred_by_id = u1._id;
+    await u2.save();
+    console.log('Force-linked john to be referred by official_jangid_g.');
   }
 
   // 4. Delete existing demo transactions/orders for these users
