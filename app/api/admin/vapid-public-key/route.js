@@ -4,6 +4,8 @@ import { getVapidKeys } from '@/lib/vapid';
 import { getSessionFromCookies } from '@/lib/auth';
 import { User } from '@/lib/models';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request) {
   try {
     await connectDB();

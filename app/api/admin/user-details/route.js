@@ -3,6 +3,8 @@ import connectDB from '@/lib/db';
 import { User, BankDetails, Transaction, Order, Scheme } from '@/lib/models';
 import { getSessionFromCookies } from '@/lib/auth';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request) {
   try {
     await connectDB();

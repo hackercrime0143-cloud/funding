@@ -148,9 +148,13 @@ export async function POST(request) {
 
         await Transaction.create({
           user_id: levelA._id,
+          order_id: order._id,
           type: 'referral_commission_l1',
           amount: commL1,
-          status: 'completed'
+          status: 'completed',
+          referred_user_username: buyer.username,
+          referred_user_phone: buyer.phone,
+          scheme_name: scheme.name
         });
 
         // Level B (0.15%)
@@ -163,9 +167,13 @@ export async function POST(request) {
 
             await Transaction.create({
               user_id: levelB._id,
+              order_id: order._id,
               type: 'referral_commission_l2',
               amount: commL2,
-              status: 'completed'
+              status: 'completed',
+              referred_user_username: buyer.username,
+              referred_user_phone: buyer.phone,
+              scheme_name: scheme.name
             });
           }
         }

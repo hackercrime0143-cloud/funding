@@ -141,6 +141,41 @@ export async function GET(request) {
       minWithdrawal = 0; // Only small (<₹200) active schemes → waive the minimum
     }
 
+    const principalBalance = freshOrders
+      .filter(o => o.status === 'active' && o.days_remaining > 0)
+      .reduce((sum, o) => sum + o.price, 0);
+
+    const completedTransactions = await Transaction.find({
+      user_id: session.id,
+      status: 'completed'
+    });
+
+    const totalProfit = completedTransactions
+      .filter(t => t.amount > 0 && !['deposit', 'principal_return'].includes(t.type))
+      .reduce((sum, t) => sum + t.amount, 0);
+
+    // Calculate today's deposit and withdrawal from database in India time zone
+    const nowLocal = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+    const startOfTodayLocal = new Date(nowLocal.getFullYear(), nowLocal.getMonth(), nowLocal.getDate());
+    const startOfTodayUTC = new Date(startOfTodayLocal.getTime() - 5.5 * 60 * 60 * 1000);
+
+    const todayTxs = await Transaction.find({
+      user_id: session.id,
+      created_at: { $gte: startOfTodayUTC }
+    });
+
+    const todayDeposit = todayTxs
+      .filter(t => t.type === 'deposit' && t.status === 'completed')
+      .reduce((sum, t) => sum + t.amount, 0);
+
+    const todayWithdrawal = Math.abs(
+      todayTxs
+        .filter(t => t.type === 'withdrawal')
+        .reduce((sum, t) => sum + t.amount, 0)
+    );
+
+    const isWithdrawalEligible = hasMaturedScheme;
+
     // Get linking status
     const bankDetails = await BankDetails.findOne({ user_id: session.id });
 
@@ -203,7 +238,12 @@ export async function GET(request) {
           account_name: bankDetails.account_name,
           ifsc: bankDetails.ifsc,
           upi_id: bankDetails.upi_id
-        } : null
+        } : null,
+        principalBalance,
+        totalProfit,
+        todayDeposit,
+        todayWithdrawal,
+        isWithdrawalEligible
       }
     });
   } catch (error) {

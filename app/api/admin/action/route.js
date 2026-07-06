@@ -104,7 +104,86 @@ export async function POST(request) {
 
       // If it's a deposit, check if it was a Custom Scheme deposit or a normal deposit
       if (tx.type === 'deposit') {
-        if (tx.amount >= 100 && tx.amount <= 500) {
+        if (tx.order_id) {
+          const order = await Order.findById(tx.order_id);
+          if (order && order.status === 'confirmation_pending') {
+            const buyer = await User.findById(tx.user_id);
+            if (buyer) {
+              let scheme = null;
+              if (order.scheme_id) {
+                scheme = await Scheme.findById(order.scheme_id);
+              }
+              if (!scheme) {
+                scheme = {
+                  name: 'Quick Deposit Scheme',
+                  price: order.price,
+                  daily_return_rate: 0.035,
+                  days: 3,
+                  total_return: order.price * (1 + 0.035 * 3)
+                };
+              }
+
+              const dailyYield = order.price * scheme.daily_return_rate;
+              buyer.wallet_balance += (order.price + dailyYield);
+              await buyer.save();
+
+              order.status = 'active';
+              order.days_remaining = Math.max(0, scheme.days - 1);
+              order.last_payout_at = new Date();
+              await order.save();
+
+              // Log daily yield payout
+              await Transaction.create({
+                user_id: buyer._id,
+                type: 'scheme_payout',
+                amount: dailyYield,
+                status: 'completed',
+                order_id: order._id
+              });
+
+              // Distribute referral commissions
+              if (buyer.referred_by_id) {
+                const levelA = await User.findById(buyer.referred_by_id);
+                if (levelA) {
+                  const commL1 = order.price * 0.003;
+                  levelA.wallet_balance += commL1;
+                  await levelA.save();
+
+                  await Transaction.create({
+                    user_id: levelA._id,
+                    order_id: order._id,
+                    type: 'referral_commission_l1',
+                    amount: commL1,
+                    status: 'completed',
+                    referred_user_username: buyer.username,
+                    referred_user_phone: buyer.phone,
+                    scheme_name: scheme.name
+                  });
+
+                  if (levelA.referred_by_id) {
+                    const levelB = await User.findById(levelA.referred_by_id);
+                    if (levelB) {
+                      const commL2 = order.price * 0.0015;
+                      levelB.wallet_balance += commL2;
+                      await levelB.save();
+
+                      await Transaction.create({
+                        user_id: levelB._id,
+                        order_id: order._id,
+                        type: 'referral_commission_l2',
+                        amount: commL2,
+                        status: 'completed',
+                        referred_user_username: buyer.username,
+                        referred_user_phone: buyer.phone,
+                        scheme_name: scheme.name
+                      });
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } else if (tx.amount >= 100 && tx.amount <= 500) {
           // Activate the custom scheme purchase order associated with the UTR
           await Order.updateOne(
             { user_id: tx.user_id, utr: tx.utr, status: 'confirmation_pending' },

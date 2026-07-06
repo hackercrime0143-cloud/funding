@@ -252,7 +252,23 @@ export default function FastPayApp() {
     .filter(t => t.amount > 0 && !['deposit', 'principal_return', 'scheme_payout', 'referral_bonus_invited', 'referral_commission_l1', 'referral_commission_l2', 'task_reward', 'referral_bonus_signup'].includes(t.type))
     .reduce((sum, t) => sum + t.amount, 0);
 
-  const totalProfit = investmentProfit + referralProfit + commissionProfit + bonusProfit + otherProfit;
+  const totalProfit = user?.totalProfit !== undefined ? user.totalProfit : (investmentProfit + referralProfit + commissionProfit + bonusProfit + otherProfit);
+
+  const isValidScreenshot = (url) => {
+    if (!url) return false;
+    const cleanUrl = String(url).trim().toLowerCase();
+    if (cleanUrl === 'wallet_purchase' || cleanUrl === 'wallet' || cleanUrl === 'none' || cleanUrl === 'null' || cleanUrl === 'undefined') return false;
+    return url.startsWith('/') || url.startsWith('data:image') || url.startsWith('http');
+  };
+
+  const getScreenshotUrl = (url) => {
+    if (!url) return '';
+    if (url.startsWith('/uploads/')) {
+      return url.replace('/uploads/', '/api/uploads/');
+    }
+    return url;
+  };
+
   const [activeOrderBankDetails, setActiveOrderBankDetails] = useState(null);
   const [depositUtr, setDepositUtr] = useState('');
   const [depositScreenshot, setDepositScreenshot] = useState(null);
@@ -1730,6 +1746,7 @@ export default function FastPayApp() {
     // Add transactions
     txHistory.forEach(tx => {
       if (tx.type === 'order_purchase' || tx.type === 'order_purchase_failed') return;
+      if (tx.type === 'deposit' && tx.order_id) return;
       feed.push({
         id: `tx-${tx.id}`,
         rawId: tx.id,
@@ -2144,7 +2161,15 @@ export default function FastPayApp() {
                   <Plus size={14} /> Deposit
                 </button>
                 <button
-                  onClick={() => { setWithdrawAmount(''); setTxMessage({ type: '', text: '' }); setShowWithdrawModal(true); }}
+                  onClick={() => {
+                    if (user && !user.isWithdrawalEligible) {
+                      alert('Withdrawals are temporarily unavailable. Withdrawals will be enabled automatically after your eligible investment scheme has matured.');
+                      return;
+                    }
+                    setWithdrawAmount('');
+                    setTxMessage({ type: '', text: '' });
+                    setShowWithdrawModal(true);
+                  }}
                   style={{ flex: 1, padding: '10px', borderRadius: '8px', background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', color: 'var(--text-primary)', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', fontSize: '0.8rem' }}
                 >
                   <ArrowUpRight size={14} /> Cash-out
@@ -2466,6 +2491,65 @@ export default function FastPayApp() {
                 </div>
               )
             )}
+          </div>
+
+          {/* Referral Commission History Dashboard */}
+          <div>
+            <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '8px' }}>
+              Referral Commission History
+            </h3>
+            {(() => {
+              const referralCommissions = txHistory.filter(t => t.status === 'completed' && ['referral_commission_l1', 'referral_commission_l2'].includes(t.type));
+              if (referralCommissions.length === 0) {
+                return (
+                  <div className="glass-panel" style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                    No referral commissions earned yet.
+                  </div>
+                );
+              }
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {referralCommissions.map((comm) => {
+                    const formatPhone = (phone) => {
+                      if (!phone) return 'N/A';
+                      const s = String(phone);
+                      if (s.length <= 4) return s;
+                      return s.substring(0, 2) + '*'.repeat(s.length - 4) + s.substring(s.length - 2);
+                    };
+                    return (
+                      <div key={comm.id} className="glass-panel" style={{ padding: '12px 16px', fontSize: '0.85rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div>
+                            <div style={{ fontWeight: 600 }}>{comm.referred_user_username || 'Direct Downline'} ({formatPhone(comm.referred_user_phone)})</div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                              Scheme: <strong>{comm.scheme_name || 'Quick Deposit Scheme'}</strong>
+                            </div>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontWeight: 700, color: 'var(--success)' }}>+₹{comm.amount.toFixed(2)}</div>
+                            <span style={{
+                              fontSize: '0.65rem',
+                              background: comm.type === 'referral_commission_l1' ? 'rgba(0, 184, 148, 0.1)' : 'rgba(108, 92, 231, 0.1)',
+                              color: comm.type === 'referral_commission_l1' ? 'var(--success)' : '#a29bfe',
+                              padding: '1px 6px',
+                              borderRadius: '4px',
+                              fontWeight: 600,
+                              display: 'inline-block',
+                              marginTop: '4px'
+                            }}>
+                              {comm.type === 'referral_commission_l1' ? 'Level 1' : 'Level 2'}
+                            </span>
+                          </div>
+                        </div>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '6px', borderTop: '1px dashed var(--glass-border)', paddingTop: '6px' }}>
+                          Earned: {new Date(comm.created_at).toLocaleString()}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
 
           {/* PWA Install App Card */}
@@ -2801,7 +2885,7 @@ export default function FastPayApp() {
                 <div style={{ fontSize: '0.65rem', color: 'var(--accent-secondary)', marginTop: '2px' }}>Click to view active schemes details</div>
               </div>
               <strong style={{ fontSize: '1.25rem', color: 'var(--accent-secondary)' }}>
-                ₹{orders.reduce((acc, o) => acc + (o.status === 'active' && o.days_remaining > 0 ? o.price : 0), 0).toFixed(2)}
+                ₹{(user?.principalBalance !== undefined ? user.principalBalance : orders.reduce((acc, o) => acc + (o.status === 'active' && o.days_remaining > 0 ? o.price : 0), 0)).toFixed(2)}
               </strong>
             </div>
 
@@ -2826,10 +2910,10 @@ export default function FastPayApp() {
                   <ArrowDownLeft size={12} color="var(--success)" /> Today's Deposit
                 </span>
                 <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--success)' }}>
-                  ₹{txHistory.reduce((acc, t) => {
+                  ₹{(user?.todayDeposit !== undefined ? user.todayDeposit : txHistory.reduce((acc, t) => {
                     const isToday = new Date(t.created_at).toDateString() === new Date().toDateString();
                     return (isToday && t.type === 'deposit' && t.status === 'completed') ? acc + t.amount : acc;
-                  }, 0).toFixed(2)}
+                  }, 0)).toFixed(2)}
                 </div>
               </div>
 
@@ -2842,10 +2926,10 @@ export default function FastPayApp() {
                   <ArrowUpRight size={12} color="var(--error)" /> Today's Withdrawal
                 </span>
                 <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--error)' }}>
-                  ₹{Math.abs(txHistory.reduce((acc, t) => {
+                  ₹{(user?.todayWithdrawal !== undefined ? user.todayWithdrawal : Math.abs(txHistory.reduce((acc, t) => {
                     const isToday = new Date(t.created_at).toDateString() === new Date().toDateString();
                     return (isToday && t.type === 'withdrawal') ? acc + t.amount : acc;
-                  }, 0)).toFixed(2)}
+                  }, 0))).toFixed(2)}
                 </div>
               </div>
             </div>
@@ -3353,15 +3437,15 @@ export default function FastPayApp() {
                                   <td style={{ padding: '6px 4px' }}>₹{d.amount.toFixed(2)}</td>
                                   <td style={{ padding: '6px 4px', fontFamily: 'monospace' }}>{d.utr || 'N/A'}</td>
                                   <td style={{ padding: '6px 4px' }}>
-                                    {d.screenshot && d.screenshot.startsWith('/') && !brokenImages[d.id] ? (
+                                    {isValidScreenshot(d.screenshot) && !brokenImages[d.id] ? (
                                       <img
-                                        src={d.screenshot}
+                                        src={getScreenshotUrl(d.screenshot)}
                                         alt="Proof"
                                         onError={() => setBrokenImages(prev => ({ ...prev, [d.id]: true }))}
                                         onClick={(e) => {
                                           e.stopPropagation();
                                           const w = window.open();
-                                          w.document.write(`<img src="${d.screenshot}" style="max-width:100%; max-height:100vh; display:block; margin:auto;">`);
+                                          w.document.write(`<img src="${getScreenshotUrl(d.screenshot)}" style="max-width:100%; max-height:100vh; display:block; margin:auto;">`);
                                           w.document.title = "Payment Receipt Screenshot";
                                         }}
                                         style={{ width: '40px', height: '40px', objectFit: 'cover', borderRadius: '4px', cursor: 'pointer', border: '1px solid var(--glass-border)' }}
@@ -3877,17 +3961,17 @@ export default function FastPayApp() {
                   {/* Right Column: Screenshot & QR */}
                   <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
                     <h4 style={{ fontWeight: 600, color: 'var(--success)', fontSize: '0.95rem', borderBottom: '1px solid var(--glass-border)', paddingBottom: '8px' }}>Uploaded Proof & QR Code</h4>
-                    {adminSelectedOrder.screenshot && adminSelectedOrder.screenshot.startsWith('/') && !brokenImages[adminSelectedOrder.id] ? (
+                    {isValidScreenshot(adminSelectedOrder.screenshot) && !brokenImages[adminSelectedOrder.id] ? (
                       <div>
                         <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Payment Screenshot:</span>
                         <div style={{ border: '1px solid var(--glass-border)', borderRadius: '8px', overflow: 'hidden', cursor: 'pointer', textAlign: 'center' }}>
                           <img
-                            src={adminSelectedOrder.screenshot}
+                            src={getScreenshotUrl(adminSelectedOrder.screenshot)}
                             alt="Receipt"
                             onError={() => setBrokenImages(prev => ({ ...prev, [adminSelectedOrder.id]: true }))}
                             onClick={() => {
                               const w = window.open();
-                              w.document.write(`<img src="${adminSelectedOrder.screenshot}" style="max-width:100%; max-height:100vh; display:block; margin:auto;">`);
+                              w.document.write(`<img src="${getScreenshotUrl(adminSelectedOrder.screenshot)}" style="max-width:100%; max-height:100vh; display:block; margin:auto;">`);
                               w.document.title = "Payment Receipt";
                             }}
                             style={{ maxWidth: '100%', maxHeight: '200px', objectFit: 'contain' }}
@@ -4341,16 +4425,16 @@ export default function FastPayApp() {
                                   <div>Submitted UTR: <strong style={{ color: 'var(--text-primary)', fontSize: '0.85rem' }}>{item.utr}</strong></div>
                                   <div>Date: {new Date(item.created_at).toLocaleString()}</div>
                                 </div>
-                                {item.screenshot && item.screenshot.startsWith('/') && !brokenImages[item.id] ? (
+                                {isValidScreenshot(item.screenshot) && !brokenImages[item.id] ? (
                                   <div style={{ marginTop: '10px', marginBottom: '12px' }}>
                                     <span style={{ fontSize: '0.75rem', color: '#a0a8c0', display: 'block', marginBottom: '4px' }}>Submitted Receipt:</span>
                                     <img
-                                      src={item.screenshot}
+                                      src={getScreenshotUrl(item.screenshot)}
                                       alt="Receipt"
                                       onError={() => setBrokenImages(prev => ({ ...prev, [item.id]: true }))}
                                       onClick={() => {
                                         const w = window.open();
-                                        w.document.write(`<img src="${item.screenshot}" style="max-width:100%; max-height:100vh; display:block; margin:auto;">`);
+                                        w.document.write(`<img src="${getScreenshotUrl(item.screenshot)}" style="max-width:100%; max-height:100vh; display:block; margin:auto;">`);
                                       }}
                                       style={{ maxWidth: '100%', maxHeight: '180px', borderRadius: '6px', cursor: 'pointer' }}
                                     />
@@ -4421,16 +4505,16 @@ export default function FastPayApp() {
                                   Submitted UTR: <strong style={{ color: 'var(--text-primary)', fontSize: '0.85rem' }}>{item.utr}</strong>
                                 </div>
                               )}
-                              {item.screenshot && item.screenshot.startsWith('/') && !brokenImages[item.id] ? (
+                              {isValidScreenshot(item.screenshot) && !brokenImages[item.id] ? (
                                 <div style={{ marginTop: '10px', marginBottom: '12px' }}>
                                   <span style={{ fontSize: '0.75rem', color: '#a0a8c0', display: 'block', marginBottom: '4px' }}>Submitted Receipt:</span>
                                   <img
-                                    src={item.screenshot}
+                                    src={getScreenshotUrl(item.screenshot)}
                                     alt="Receipt"
                                     onError={() => setBrokenImages(prev => ({ ...prev, [item.id]: true }))}
                                     onClick={() => {
                                       const w = window.open();
-                                      w.document.write(`<img src="${item.screenshot}" style="max-width:100%; max-height:100vh; display:block; margin:auto;">`);
+                                      w.document.write(`<img src="${getScreenshotUrl(item.screenshot)}" style="max-width:100%; max-height:100vh; display:block; margin:auto;">`);
                                     }}
                                     style={{ maxWidth: '100%', maxHeight: '180px', borderRadius: '6px', cursor: 'pointer' }}
                                   />
@@ -4633,18 +4717,18 @@ export default function FastPayApp() {
                               </div>
 
                               {/* Screenshot displaying */}
-                              {order.screenshot && order.screenshot.startsWith('/') && !brokenImages[order.id] ? (
+                              {isValidScreenshot(order.screenshot) && !brokenImages[order.id] ? (
                                 <div style={{ marginTop: '10px', marginBottom: '12px' }}>
                                   <span style={{ fontSize: '0.75rem', color: '#a0a8c0', display: 'block', marginBottom: '4px' }}>Submitted Receipt Screenshot:</span>
                                   <div style={{ position: 'relative', width: '100%', maxHeight: '180px', overflow: 'hidden', borderRadius: '8px', border: '1px solid #202736', cursor: 'pointer' }}>
                                     <img
-                                      src={order.screenshot}
+                                      src={getScreenshotUrl(order.screenshot)}
                                       alt="Payment Receipt"
                                       onError={() => setBrokenImages(prev => ({ ...prev, [order.id]: true }))}
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         const w = window.open();
-                                        w.document.write(`<img src="${order.screenshot}" style="max-width:100%; max-height:100vh; display:block; margin:auto;">`);
+                                        w.document.write(`<img src="${getScreenshotUrl(order.screenshot)}" style="max-width:100%; max-height:100vh; display:block; margin:auto;">`);
                                         w.document.title = "Payment Receipt Screenshot";
                                       }}
                                       style={{ width: '100%', objectFit: 'contain', maxHeight: '180px' }}
@@ -4833,7 +4917,7 @@ export default function FastPayApp() {
                 <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)' }}>Verify Scheme Purchases</h3>
 
                 {(() => {
-                  const filtered = adminOrders.filter(o => o.status === 'pending');
+                  const filtered = adminOrders.filter(o => o.status === 'pending' || o.status === 'confirmation_pending');
 
                   if (filtered.length === 0) {
                     return (
@@ -4856,7 +4940,7 @@ export default function FastPayApp() {
                               padding: '16px',
                               cursor: 'pointer',
                               background: 'var(--bg-secondary)',
-                              borderLeft: order.status === 'pending' ? '3px solid var(--gold)' : order.status === 'active' ? '3px solid var(--success)' : '3px solid var(--error)',
+                              borderLeft: (order.status === 'pending' || order.status === 'confirmation_pending') ? '3px solid var(--gold)' : order.status === 'active' ? '3px solid var(--success)' : '3px solid var(--error)',
                               borderTop: '1px solid var(--glass-border)',
                               borderRight: '1px solid var(--glass-border)',
                               borderBottom: '1px solid var(--glass-border)',
@@ -4869,9 +4953,9 @@ export default function FastPayApp() {
                                 <span style={{
                                   fontSize: '0.65rem',
                                   background: order.status === 'active' ? 'rgba(0, 184, 148, 0.1)' :
-                                    order.status === 'pending' ? 'rgba(253, 203, 110, 0.1)' : 'rgba(255, 118, 117, 0.1)',
+                                    (order.status === 'pending' || order.status === 'confirmation_pending') ? 'rgba(253, 203, 110, 0.1)' : 'rgba(255, 118, 117, 0.1)',
                                   color: order.status === 'active' ? 'var(--success)' :
-                                    order.status === 'pending' ? 'var(--gold)' : 'var(--error)',
+                                    (order.status === 'pending' || order.status === 'confirmation_pending') ? 'var(--gold)' : 'var(--error)',
                                   padding: '1px 6px',
                                   borderRadius: '4px',
                                   textTransform: 'capitalize',
@@ -4904,18 +4988,18 @@ export default function FastPayApp() {
                                   )}
                                 </div>
 
-                                {order.screenshot && order.screenshot.startsWith('/') && !brokenImages[order.id] ? (
+                                {isValidScreenshot(order.screenshot) && !brokenImages[order.id] ? (
                                    <div style={{ marginTop: '10px', marginBottom: '12px' }}>
                                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Submitted Receipt Screenshot:</span>
                                      <div style={{ position: 'relative', width: '100%', maxHeight: '180px', overflow: 'hidden', borderRadius: '6px', border: '1px solid var(--glass-border)', cursor: 'pointer' }}>
                                        <img
-                                         src={order.screenshot}
+                                         src={getScreenshotUrl(order.screenshot)}
                                          alt="Payment Receipt"
                                          onError={() => setBrokenImages(prev => ({ ...prev, [order.id]: true }))}
                                          onClick={(e) => {
                                            e.stopPropagation();
                                            const w = window.open();
-                                           w.document.write(`<img src="${order.screenshot}" style="max-width:100%; max-height:100vh; display:block; margin:auto;">`);
+                                           w.document.write(`<img src="${getScreenshotUrl(order.screenshot)}" style="max-width:100%; max-height:100vh; display:block; margin:auto;">`);
                                            w.document.title = "Payment Receipt Screenshot";
                                          }}
                                          style={{ width: '100%', objectFit: 'contain', maxHeight: '180px' }}
@@ -4929,7 +5013,7 @@ export default function FastPayApp() {
                                    </div>
                                  )}
 
-                                {order.status === 'pending' && (
+                                {(order.status === 'pending' || order.status === 'confirmation_pending') && (
                                   <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
                                     <button
                                       onClick={(e) => { e.stopPropagation(); handleApproveOrder(order.id, 'approve'); }}
@@ -5987,8 +6071,9 @@ export default function FastPayApp() {
         const purchaseDate = new Date(o.created_at);
         const completionDate = new Date(purchaseDate.getTime() + totalDays * 24 * 60 * 60 * 1000);
         const remainMs = Math.max(0, completionDate.getTime() - nowTime);
-        const remainH = Math.floor(remainMs / 3600000);
-        const remainM = Math.floor((remainMs % 3600000) / 60000);
+        const remainDays = Math.floor(remainMs / (24 * 60 * 60 * 1000));
+        const remainHours = Math.floor((remainMs % (24 * 60 * 60 * 1000)) / 3600000);
+        const remainMinutes = Math.floor((remainMs % 3600000) / 60000);
         const remainS = Math.floor((remainMs % 60000) / 1000);
         const pad = (num) => String(num).padStart(2, '0');
         const statusColor = o.status === 'active' ? 'var(--success)' : o.status === 'completed' ? '#a29bfe' : 'var(--gold)';
@@ -6009,8 +6094,10 @@ export default function FastPayApp() {
                   ['Total Expected Profit', `₹${(o.daily_income * totalDays).toFixed(2)}`],
                   ['Purchase Date', purchaseDate.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })],
                   ['Completion Date', completionDate.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })],
-                  ['Days Remaining', `${o.days_remaining} of ${totalDays} days`],
-                  ['Live Countdown', `${pad(remainH)}h ${pad(remainM)}m ${pad(remainS)}s`],
+                  ['Remaining Days', `${remainDays} Days`],
+                  ['Remaining Hours', `${remainHours} Hours`],
+                  ['Remaining Minutes', `${remainMinutes} Minutes`],
+                  ['Live Countdown', `${pad(remainDays * 24 + remainHours)}h ${pad(remainMinutes)}m ${pad(remainS)}s`],
                   ['Current Status', o.status],
                 ].map(([label, value]) => (
                   <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px' }}>

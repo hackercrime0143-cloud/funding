@@ -103,7 +103,9 @@ export async function GET(request) {
       rejection_reason: t.rejection_reason || '',
       resolved_at: t.resolved_at || null,
       order_id: t.order_id ? t.order_id._id.toString() : null,
-      scheme_name: t.order_id && t.order_id.scheme_id ? t.order_id.scheme_id.name : (t.order_id ? 'Quick Deposit Scheme' : null)
+      scheme_name: t.scheme_name || (t.order_id && t.order_id.scheme_id ? t.order_id.scheme_id.name : (t.order_id ? 'Quick Deposit Scheme' : null)),
+      referred_user_username: t.referred_user_username || null,
+      referred_user_phone: t.referred_user_phone || null
     }));
 
     return NextResponse.json({ success: true, transactions });
@@ -226,6 +228,15 @@ export async function POST(request) {
       });
 
     } else if (type === 'withdrawal') {
+      // Enforce withdrawal eligibility: user must have at least one completed/matured scheme
+      const userOrders = await Order.find({ user_id: session.id, status: { $in: ['active', 'expired_pending_match', 'completed'] } });
+      const hasMaturedScheme = userOrders.some(order => order.days_remaining === 0 || order.status === 'expired_pending_match' || order.status === 'completed');
+      if (!hasMaturedScheme) {
+        return NextResponse.json({
+          error: 'Withdrawals are temporarily unavailable. Withdrawals will be enabled automatically after your eligible investment scheme has matured.'
+        }, { status: 400 });
+      }
+
       // Check if user has linked their account details first
       const bankLinked = await BankDetails.findOne({ user_id: session.id });
       if (!bankLinked) {
