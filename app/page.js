@@ -2757,31 +2757,7 @@ export default function FastPayApp() {
             })()}
           </div>
 
-          {/* PWA Install App Card */}
-          {!isPwaInstalled && (
-            <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '10px', border: '1px solid var(--accent-primary)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '1.25rem' }}>📱</span>
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0 }} className="gradient-text">Install {pwaName}</h3>
-              </div>
-              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: '1.4', margin: 0 }}>
-                {pwaInstallPromptText}
-              </p>
-              {isPwaSupported ? (
-                <button
-                  onClick={handleInstallPwa}
-                  className="gradient-btn"
-                  style={{ width: '100%', padding: '12px', borderRadius: '8px', fontSize: '0.9rem', fontWeight: 700 }}
-                >
-                  Install Now
-                </button>
-              ) : (
-                <div style={{ padding: '10px', background: 'rgba(255, 118, 117, 0.1)', border: '1px solid rgba(255, 118, 117, 0.2)', borderRadius: '8px', color: 'var(--error)', fontSize: '0.85rem', textAlign: 'center' }}>
-                  Your browser does not support app installation. Please continue using the website.
-                </div>
-              )}
-            </div>
-          )}
+
 
           {/* Referral Rewards Explanation Cards */}
           <div style={{ marginTop: '20px' }}>
@@ -3382,10 +3358,7 @@ export default function FastPayApp() {
           {/* App Download Link (visible ONLY on web platform) */}
           {apkDownloadUrl && typeof window !== 'undefined' && !(window.Capacitor && window.Capacitor.isNativePlatform()) && (
             <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <h3 style={{ fontSize: '1rem', fontWeight: 600 }} className="gradient-text">📱 Download App</h3>
-              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
-                Download the FastPay Android App for a native, faster experience with instant access and push notifications.
-              </p>
+              <h3 style={{ fontSize: '1rem', fontWeight: 600 }} className="gradient-text">📱 Download APK</h3>
               <a
                 href={apkDownloadUrl}
                 className="gradient-btn interactive-card"
