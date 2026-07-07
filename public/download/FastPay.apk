@@ -1,0 +1,6 @@
+PLACEHOLDER FOR FASTPAY NATIVE ANDROID APK.
+To deploy:
+1. Open the 'android' folder in Android Studio.
+2. Build the signed release APK (Build -> Build Bundle(s)/APK(s) -> Build APK(s) or Generate Signed APK).
+3. Copy the compiled APK (usually located at 'android/app/build/outputs/apk/release/app-release-unsigned.apk' or similar) into this path: 'public/download/FastPay.apk', replacing this placeholder file.
+4. When you deploy the Next.js app to production, users will be able to download the APK directly from your website!

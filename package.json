@@ -9,6 +9,13 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@capacitor/app": "^8.1.0",
+    "@capacitor/browser": "^8.0.3",
+    "@capacitor/camera": "^8.2.0",
+    "@capacitor/clipboard": "^8.0.1",
+    "@capacitor/core": "^8.4.1",
+    "@capacitor/network": "^8.0.1",
+    "@capacitor/push-notifications": "^8.1.1",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^11.0.0",
     "jsonwebtoken": "^9.0.2",
@@ -18,5 +25,10 @@
     "react": "^18",
     "react-dom": "^18",
     "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^8.4.1",
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.4.1"
   }
 }

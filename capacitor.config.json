@@ -1,0 +1,15 @@
+{
+  "appId": "com.fastpay.app",
+  "appName": "FastPay",
+  "webDir": "public",
+  "bundledWebRuntime": false,
+  "server": {
+    "url": "https://fastpay-app.com",
+    "allowNavigation": ["fastpay-app.com"]
+  },
+  "plugins": {
+    "PushNotifications": {
+      "presentationOptions": ["badge", "sound", "alert"]
+    }
+  }
+}

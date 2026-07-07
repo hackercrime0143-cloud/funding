@@ -28,6 +28,7 @@ export default function FastPayApp() {
   // App views: 'loading', 'auth', 'app'
   const [appState, setAppState] = useState('loading');
   const [activeTab, setActiveTab] = useState('home'); // 'home', 'orders', 'team', 'account', 'me'
+  const [isOffline, setIsOffline] = useState(false);
 
   // Auth state
   const [isLogin, setIsLogin] = useState(true);
@@ -317,8 +318,9 @@ export default function FastPayApp() {
       const isAndroid = /android/i.test(ua);
       const isIos = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
       const isMobileWidth = window.innerWidth <= 768;
+      const isNative = window.Capacitor && window.Capacitor.isNativePlatform();
 
-      if (!isMobileWidth || isIos || !isAndroid) {
+      if (!isNative && (!isMobileWidth || isIos || !isAndroid)) {
         setIsDeviceBlocked(true);
       }
 
@@ -358,6 +360,80 @@ export default function FastPayApp() {
         }
       }
     };
+  }, []);
+
+  // 1b. Native platform integration, Push notifications, network & external link handlers
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const isNative = window.Capacitor && window.Capacitor.isNativePlatform();
+
+      // Push notification permissions
+      if (isNative) {
+        import('@capacitor/push-notifications').then(({ PushNotifications }) => {
+          PushNotifications.requestPermissions().then(result => {
+            if (result.receive === 'granted') {
+              PushNotifications.register();
+            }
+          });
+        });
+      }
+
+      // Offline detection listeners
+      const handleOffline = () => setIsOffline(true);
+      const handleOnline = () => setIsOffline(false);
+      window.addEventListener('offline', handleOffline);
+      window.addEventListener('online', handleOnline);
+      if (navigator.onLine === false) {
+        setIsOffline(true);
+      }
+
+      let nativeNetworkListener;
+      if (isNative) {
+        import('@capacitor/network').then(({ Network }) => {
+          Network.getStatus().then(status => {
+            setIsOffline(!status.connected);
+          });
+          Network.addListener('networkStatusChange', status => {
+            setIsOffline(!status.connected);
+          }).then(listener => {
+            nativeNetworkListener = listener;
+          });
+        });
+
+        // Intercept global external link clicks
+        const handleExternalLinks = async (e) => {
+          const anchor = e.target.closest('a');
+          if (anchor && anchor.href) {
+            try {
+              const url = new URL(anchor.href);
+              const isInternal = url.hostname === window.location.hostname;
+              const isApk = url.pathname.endsWith('.apk');
+              if (!isInternal || isApk) {
+                e.preventDefault();
+                const { Browser } = await import('@capacitor/browser');
+                await Browser.open({ url: anchor.href });
+              }
+            } catch (err) {
+              console.error('Failed processing external link click:', err);
+            }
+          }
+        };
+        document.addEventListener('click', handleExternalLinks);
+        return () => {
+          window.removeEventListener('offline', handleOffline);
+          window.removeEventListener('online', handleOnline);
+          document.removeEventListener('click', handleExternalLinks);
+          if (nativeNetworkListener) {
+            nativeNetworkListener.remove();
+          }
+        };
+      }
+
+      return () => {
+        window.removeEventListener('offline', handleOffline);
+        window.removeEventListener('online', handleOnline);
+      };
+    }
   }, []);
 
   // Regenerate captcha when switching login/registration forms
@@ -537,11 +613,27 @@ export default function FastPayApp() {
         const sv = data.pwaSettings.version;
         setServerAppVersion(sv);
         setPwaUpdateNotes(data.pwaSettings.updateNotes || '');
-        const localVersion = localStorage.getItem('fp_app_version');
-        if (localVersion && localVersion !== sv) {
-          setShowForceUpdate(true);
-        } else if (!localVersion) {
-          localStorage.setItem('fp_app_version', sv);
+        
+        let currentVersion = null;
+        if (typeof window !== 'undefined') {
+          if (window.Capacitor && window.Capacitor.isNativePlatform()) {
+            try {
+              const { App } = await import('@capacitor/app');
+              const info = await App.getInfo();
+              currentVersion = info.version;
+            } catch (err) {
+              console.error('Error getting native app info:', err);
+            }
+          }
+          if (!currentVersion) {
+            currentVersion = localStorage.getItem('fp_app_version');
+          }
+
+          if (currentVersion && currentVersion !== sv) {
+            setShowForceUpdate(true);
+          } else if (!currentVersion) {
+            localStorage.setItem('fp_app_version', sv);
+          }
         }
       }
 
@@ -1735,8 +1827,18 @@ export default function FastPayApp() {
   };
 
 
-  const copyToClipboard = (text) => {
-    navigator.clipboard.writeText(text);
+  const copyToClipboard = async (text) => {
+    if (typeof window !== 'undefined' && window.Capacitor && window.Capacitor.isNativePlatform()) {
+      try {
+        const { Clipboard } = await import('@capacitor/clipboard');
+        await Clipboard.write({ string: text });
+      } catch (err) {
+        console.error('Failed to copy natively:', err);
+        navigator.clipboard.writeText(text);
+      }
+    } else if (navigator.clipboard) {
+      navigator.clipboard.writeText(text);
+    }
     alert('Copied to clipboard!');
   };
 
@@ -1806,6 +1908,15 @@ export default function FastPayApp() {
             className="gradient-btn"
             style={{ width: '100%', padding: '14px', borderRadius: '12px', fontSize: '1rem', fontWeight: 700, cursor: 'pointer' }}
             onClick={async () => {
+              if (typeof window !== 'undefined' && window.Capacitor && window.Capacitor.isNativePlatform() && apkDownloadUrl) {
+                try {
+                  const { Browser } = await import('@capacitor/browser');
+                  await Browser.open({ url: apkDownloadUrl });
+                  return;
+                } catch (err) {
+                  console.error('Failed to open native browser for APK download:', err);
+                }
+              }
               try {
                 if ('caches' in window) {
                   const cacheKeys = await caches.keys();
@@ -2087,6 +2198,33 @@ export default function FastPayApp() {
             )}
           </p>
         </div>
+
+        {/* Download App Button on Login (visible only on web) */}
+        {apkDownloadUrl && typeof window !== 'undefined' && !(window.Capacitor && window.Capacitor.isNativePlatform()) && (
+          <div style={{ marginTop: '20px', textAlign: 'center' }}>
+            <a
+              href={apkDownloadUrl}
+              className="gradient-btn interactive-card"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '12px 24px',
+                borderRadius: '12px',
+                fontSize: '0.9rem',
+                fontWeight: 600,
+                textDecoration: 'none',
+                color: '#fff',
+                cursor: 'pointer',
+                border: '1px solid rgba(255,255,255,0.1)',
+                boxShadow: 'var(--card-shadow)'
+              }}
+              download="FastPay.apk"
+            >
+              📱 Download Android App
+            </a>
+          </div>
+        )}
       </div>
     );
   }
@@ -2106,10 +2244,7 @@ export default function FastPayApp() {
         {user?.supportId && (
           <div 
             onClick={() => {
-              if (navigator.clipboard) {
-                navigator.clipboard.writeText(user.supportId);
-                alert(`Support ID ${user.supportId} copied to clipboard!`);
-              }
+              copyToClipboard(user.supportId);
             }}
             style={{ 
               background: 'var(--bg-secondary)', 
@@ -2412,8 +2547,7 @@ export default function FastPayApp() {
               <button
                 onClick={() => {
                   const link = `${window.location.origin}/?ref=${teamData.referralCode}`;
-                  navigator.clipboard.writeText(link);
-                  alert('Referral link copied to clipboard!');
+                  copyToClipboard(link);
                 }}
                 className="gradient-btn"
                 style={{ padding: '8px 16px', borderRadius: '8px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}
@@ -3173,6 +3307,33 @@ export default function FastPayApp() {
               Logout from Account
             </button>
           </div>
+
+          {/* App Download Link (visible ONLY on web platform) */}
+          {apkDownloadUrl && typeof window !== 'undefined' && !(window.Capacitor && window.Capacitor.isNativePlatform()) && (
+            <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <h3 style={{ fontSize: '1rem', fontWeight: 600 }} className="gradient-text">📱 Download App</h3>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+                Download the FastPay Android App for a native, faster experience with instant access and push notifications.
+              </p>
+              <a
+                href={apkDownloadUrl}
+                className="gradient-btn interactive-card"
+                style={{
+                  padding: '12px',
+                  borderRadius: '8px',
+                  fontSize: '0.9rem',
+                  fontWeight: 600,
+                  textAlign: 'center',
+                  textDecoration: 'none',
+                  color: '#fff',
+                  cursor: 'pointer'
+                }}
+                download="FastPay.apk"
+              >
+                Download APK Now
+              </a>
+            </div>
+          )}
         </div>
       )}
 
@@ -7281,6 +7442,36 @@ export default function FastPayApp() {
           <span>Me</span>
         </button>
       </nav>
+
+      {/* --- OFFLINE OVERLAY BLOCK --- */}
+      {isOffline && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', zIndex: 10000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px', fontFamily: 'Outfit, sans-serif' }}>
+          <div className="glass-panel animate-fade-in" style={{ width: '100%', maxWidth: '340px', padding: '32px', textAlign: 'center', border: '1px solid rgba(255, 118, 117, 0.4)', background: 'var(--bg-secondary)', borderRadius: '12px' }}>
+            <div style={{ fontSize: '3rem', marginBottom: '16px' }}>📶</div>
+            <h2 style={{ fontSize: '1.3rem', fontWeight: 800, marginBottom: '10px', color: '#ff7675' }}>No Internet Connection</h2>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '20px', lineHeight: '1.4' }}>
+              Please check your network connection and try again. The app will automatically reconnect.
+            </p>
+            <button
+              className="gradient-btn"
+              style={{ width: '100%', padding: '12px', borderRadius: '8px', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer', background: 'linear-gradient(135deg, #ff7675 0%, #d63031 100%)' }}
+              onClick={async () => {
+                if (typeof window !== 'undefined') {
+                  if (window.Capacitor && window.Capacitor.isNativePlatform()) {
+                    const { Network } = await import('@capacitor/network');
+                    const status = await Network.getStatus();
+                    setIsOffline(!status.connected);
+                  } else {
+                    setIsOffline(!navigator.onLine);
+                  }
+                }
+              }}
+            >
+              Retry Connection
+            </button>
+          </div>
+        </div>
+      )}
 
     </div>
   );
