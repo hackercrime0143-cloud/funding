@@ -81,6 +81,7 @@ export default function FastPayApp() {
   const [adminUserProfileLoading, setAdminUserProfileLoading] = useState(false);
   const [apkDownloadUrl, setApkDownloadUrl] = useState('');
   const [newApkDownloadUrl, setNewApkDownloadUrl] = useState('');
+  const [apkUploadLoading, setApkUploadLoading] = useState(false);
 
   // Search, sort, filter, and pagination states
   const [userSearch, setUserSearch] = useState('');
@@ -867,6 +868,43 @@ export default function FastPayApp() {
       }
     } catch (e) {
       alert('Error saving APK link.');
+    }
+  };
+
+  const handleApkFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith('.apk')) {
+      alert('Invalid file format. Please upload a file ending with ".apk"');
+      e.target.value = '';
+      return;
+    }
+
+    setApkUploadLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const res = await fetch('/api/admin/upload-apk', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        alert(data.message);
+        setApkDownloadUrl(data.downloadUrl);
+        setNewApkDownloadUrl(data.downloadUrl);
+      } else {
+        alert(data.error || 'Failed to upload APK.');
+      }
+    } catch (err) {
+      console.error('APK upload error:', err);
+      alert('Error uploading APK file.');
+    } finally {
+      setApkUploadLoading(false);
+      e.target.value = '';
     }
   };
 
@@ -4408,7 +4446,7 @@ export default function FastPayApp() {
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <input
                     type="text"
-                    placeholder="e.g. https://fastpay.app/fastpay.apk"
+                    placeholder="e.g. /download/FastPay.apk"
                     className="form-input"
                     value={newApkDownloadUrl}
                     onChange={(e) => setNewApkDownloadUrl(e.target.value)}
@@ -4421,6 +4459,25 @@ export default function FastPayApp() {
                   >
                     Save URL
                   </button>
+                </div>
+                <div style={{ borderTop: '1px solid var(--glass-border)', paddingTop: '10px', marginTop: '5px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block' }}>
+                    Or Upload APK File directly to server:
+                  </span>
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    <input
+                      type="file"
+                      accept=".apk"
+                      onChange={handleApkFileUpload}
+                      disabled={apkUploadLoading}
+                      style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', flex: 1 }}
+                    />
+                    {apkUploadLoading && (
+                      <span style={{ fontSize: '0.75rem', color: 'var(--accent-secondary)', animation: 'pulse 1.5s infinite' }}>
+                        Uploading...
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
 

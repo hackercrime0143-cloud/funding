@@ -295,9 +295,49 @@ export async function POST(request) {
       if (!apkUrl) {
         return NextResponse.json({ error: 'APK URL is required.' }, { status: 400 });
       }
+
+      const trimmedUrl = apkUrl.trim();
+      const lowercaseUrl = trimmedUrl.toLowerCase();
+
+      // Verify that the link points to an APK file
+      let pathname = lowercaseUrl;
+      try {
+        if (lowercaseUrl.startsWith('http://') || lowercaseUrl.startsWith('https://')) {
+          const parsed = new URL(lowercaseUrl);
+          pathname = parsed.pathname;
+        }
+      } catch (err) {
+        // Fallback to treat as relative path
+      }
+
+      if (!pathname.endsWith('.apk')) {
+        return NextResponse.json({ error: 'Invalid URL. The link must point to a file ending with the ".apk" extension.' }, { status: 400 });
+      }
+
+      // If it is a local relative URL, verify that the file actually exists on the server
+      if (trimmedUrl.startsWith('/') && !trimmedUrl.startsWith('//')) {
+        const cleanPathname = trimmedUrl.split('?')[0].split('#')[0];
+        const path = require('path');
+        const fs = require('fs');
+        
+        let localFilePath;
+        if (cleanPathname.startsWith('/download/')) {
+          const filename = cleanPathname.substring('/download/'.length);
+          localFilePath = path.join(process.cwd(), 'apk-store', filename);
+        } else {
+          localFilePath = path.join(process.cwd(), 'public', cleanPathname);
+        }
+
+        if (!fs.existsSync(localFilePath)) {
+          return NextResponse.json({ 
+            error: `File verification failed: The file "${cleanPathname}" was not found on the server. Please compile the APK and upload it first.` 
+          }, { status: 400 });
+        }
+      }
+
       await Settings.findOneAndUpdate(
         { key: 'apk_download_url' },
-        { value: apkUrl.trim() },
+        { value: trimmedUrl },
         { upsert: true, new: true }
       );
       return NextResponse.json({ success: true, message: 'APK download link updated successfully!' });
