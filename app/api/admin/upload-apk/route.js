@@ -39,8 +39,8 @@ export async function POST(request) {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    // Define storage path in apk-store
-    const uploadDir = path.join(process.cwd(), 'apk-store');
+    // Define storage path in downloads folder
+    const uploadDir = path.join(process.cwd(), 'downloads');
     if (!fs.existsSync(uploadDir)) {
       fs.mkdirSync(uploadDir, { recursive: true });
     }
@@ -48,18 +48,50 @@ export async function POST(request) {
     const filePath = path.join(uploadDir, filename);
     fs.writeFileSync(filePath, buffer);
 
+    // Get current version and increment it
+    const currentVersionSetting = await Settings.findOne({ key: 'pwa_version' });
+    const currentVersion = currentVersionSetting ? currentVersionSetting.value : '1.0.0';
+    
+    // Auto-increment version helper
+    const incrementVersion = (versionStr) => {
+      if (!versionStr) return '1.0.1';
+      const parts = versionStr.split('.');
+      if (parts.length === 3) {
+        const patch = parseInt(parts[2], 10);
+        if (!isNaN(patch)) {
+          parts[2] = (patch + 1).toString();
+          return parts.join('.');
+        }
+      }
+      const num = parseFloat(versionStr);
+      if (!isNaN(num)) {
+        return (num + 0.1).toFixed(2);
+      }
+      return versionStr + '_new';
+    };
+
+    const newVersion = incrementVersion(currentVersion);
+
     // Save download URL to Settings
-    const downloadUrl = `/download/${filename}`;
+    const downloadUrl = `/downloads/${filename}`;
     await Settings.findOneAndUpdate(
       { key: 'apk_download_url' },
       { value: downloadUrl },
-      { upsert: true, new: true }
+      { upsert: true }
+    );
+
+    // Save incremented version to Settings
+    await Settings.findOneAndUpdate(
+      { key: 'pwa_version' },
+      { value: newVersion },
+      { upsert: true }
     );
 
     return NextResponse.json({
       success: true,
-      message: `APK file uploaded successfully as "${filename}"!`,
-      downloadUrl
+      message: `APK file uploaded successfully as "${filename}"! App version bumped to ${newVersion}.`,
+      downloadUrl,
+      version: newVersion
     });
   } catch (error) {
     console.error('[APK Upload API Error]', error);

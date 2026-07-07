@@ -13,16 +13,24 @@ export async function GET(request, { params }) {
       });
     }
 
-    // Path to the public/download folder
-    const filePath = path.join(process.cwd(), 'public', 'download', filename);
+    // Verify the downloads folder exists
+    const downloadDir = path.join(process.cwd(), 'downloads');
+    if (!fs.existsSync(downloadDir)) {
+      fs.mkdirSync(downloadDir, { recursive: true });
+    }
 
-    // Verify the file exists on the server
-    if (!fs.existsSync(filePath)) {
-      return new Response(`Error: The requested file "${filename}" was not found on the server. Please compile the APK and upload it to public/download/${filename}`, {
+    // Perform case-insensitive check for the file
+    const files = fs.readdirSync(downloadDir);
+    const matchedFile = files.find(f => f.toLowerCase() === filename.toLowerCase());
+
+    if (!matchedFile) {
+      return new Response(`Error: The requested file "${filename}" was not found on the server. Please compile the APK and upload it to downloads/${filename}`, {
         status: 404,
         headers: { 'Content-Type': 'text/plain' },
       });
     }
+
+    const filePath = path.join(downloadDir, matchedFile);
 
     // Read the file and serve it with proper binary headers
     const fileBuffer = fs.readFileSync(filePath);

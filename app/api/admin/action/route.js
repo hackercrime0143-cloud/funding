@@ -321,9 +321,9 @@ export async function POST(request) {
         const fs = require('fs');
         
         let localFilePath;
-        if (cleanPathname.startsWith('/download/')) {
-          const filename = cleanPathname.substring('/download/'.length);
-          localFilePath = path.join(process.cwd(), 'apk-store', filename);
+        if (cleanPathname.startsWith('/downloads/')) {
+          const filename = cleanPathname.substring('/downloads/'.length);
+          localFilePath = path.join(process.cwd(), 'downloads', filename);
         } else {
           localFilePath = path.join(process.cwd(), 'public', cleanPathname);
         }

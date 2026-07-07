@@ -200,7 +200,7 @@ export async function GET(request) {
       settingsMap[s.key] = s.value;
     });
 
-    const apkDownloadUrl = settingsMap['apk_download_url'] || '';
+    const apkDownloadUrl = settingsMap['apk_download_url'] || '/downloads/FastPay.apk';
     const pwaSettings = {
       name: settingsMap['pwa_name'] || 'FastPay',
       shortName: settingsMap['pwa_short_name'] || 'FastPay',

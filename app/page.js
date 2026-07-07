@@ -4446,7 +4446,7 @@ export default function FastPayApp() {
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <input
                     type="text"
-                    placeholder="e.g. /download/FastPay.apk"
+                    placeholder="e.g. /downloads/FastPay.apk"
                     className="form-input"
                     value={newApkDownloadUrl}
                     onChange={(e) => setNewApkDownloadUrl(e.target.value)}
