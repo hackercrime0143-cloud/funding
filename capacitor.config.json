@@ -4,8 +4,8 @@
   "webDir": "public",
   "bundledWebRuntime": false,
   "server": {
-    "url": "https://quicklylearning.info",
-    "allowNavigation": ["quicklylearning.info"]
+    "url": "https://quicklyearning.info",
+    "allowNavigation": ["quicklyearning.info"]
   },
   "plugins": {
     "PushNotifications": {
