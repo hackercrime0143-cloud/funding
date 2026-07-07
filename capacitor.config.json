@@ -4,8 +4,8 @@
   "webDir": "public",
   "bundledWebRuntime": false,
   "server": {
-    "url": "https://fastpay-app.com",
-    "allowNavigation": ["fastpay-app.com"]
+    "url": "https://quicklylearning.info",
+    "allowNavigation": ["quicklylearning.info"]
   },
   "plugins": {
     "PushNotifications": {

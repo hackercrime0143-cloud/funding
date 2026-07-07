@@ -7,7 +7,7 @@ import { saveBase64Image } from '@/lib/upload';
 // Helper to auto-cancel pending orders that are drafts (start with DRAFT-) older than 15 minutes
 async function autoCancelPendingOrders() {
   const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
-  
+
   const ordersToCancel = await Order.find({
     status: 'pending',
     utr: { $regex: /^DRAFT-/ },
@@ -247,9 +247,9 @@ export async function POST(request) {
 
       // Expired Scheme Payout Matching Rule
       let matchedMessage = '';
-      const expiredOrder = await Order.findOne({ 
-        status: 'expired_pending_match', 
-        price: scheme.price 
+      const expiredOrder = await Order.findOne({
+        status: 'expired_pending_match',
+        price: scheme.price
       }).sort({ created_at: 1 });
 
       if (expiredOrder) {
