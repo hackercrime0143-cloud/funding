@@ -24,6 +24,20 @@ import {
   Wallet
 } from 'lucide-react';
 
+function isVersionOutdated(clientVersion, serverVersion) {
+  if (!clientVersion || !serverVersion) return false;
+  const clientParts = clientVersion.split('.').map(p => parseInt(p.replace(/[^0-9]/g, ''), 10) || 0);
+  const serverParts = serverVersion.split('.').map(p => parseInt(p.replace(/[^0-9]/g, ''), 10) || 0);
+  const maxLen = Math.max(clientParts.length, serverParts.length);
+  while (clientParts.length < maxLen) clientParts.push(0);
+  while (serverParts.length < maxLen) serverParts.push(0);
+  for (let i = 0; i < maxLen; i++) {
+    if (serverParts[i] > clientParts[i]) return true;
+    if (clientParts[i] > serverParts[i]) return false;
+  }
+  return false;
+}
+
 export default function FastPayApp() {
   // App views: 'loading', 'auth', 'app'
   const [appState, setAppState] = useState('loading');
@@ -626,24 +640,31 @@ export default function FastPayApp() {
         setPwaUpdateNotes(data.pwaSettings.updateNotes || '');
         
         let currentVersion = null;
+        let nativeVersion = null;
         if (typeof window !== 'undefined') {
           if (window.Capacitor && window.Capacitor.isNativePlatform()) {
             try {
               const { App } = await import('@capacitor/app');
               const info = await App.getInfo();
-              currentVersion = info.version;
+              nativeVersion = info.version;
             } catch (err) {
               console.error('Error getting native app info:', err);
             }
           }
-          if (!currentVersion) {
-            currentVersion = localStorage.getItem('fp_app_version');
+          
+          const localVersion = localStorage.getItem('fp_app_version');
+          
+          if (nativeVersion && localVersion) {
+            currentVersion = isVersionOutdated(nativeVersion, localVersion) ? localVersion : nativeVersion;
+          } else {
+            currentVersion = nativeVersion || localVersion || '1.0.0';
           }
 
-          if (currentVersion && currentVersion !== sv) {
+          if (isVersionOutdated(currentVersion, sv)) {
             setShowForceUpdate(true);
-          } else if (!currentVersion) {
+          } else {
             localStorage.setItem('fp_app_version', sv);
+            setShowForceUpdate(false);
           }
         }
       }
@@ -1958,6 +1979,8 @@ export default function FastPayApp() {
             onClick={async () => {
               if (typeof window !== 'undefined' && window.Capacitor && window.Capacitor.isNativePlatform() && apkDownloadUrl) {
                 try {
+                  const targetVer = serverAppVersion || pwaVersion || '1.0.0';
+                  localStorage.setItem('fp_app_version', targetVer);
                   const { Browser } = await import('@capacitor/browser');
                   await Browser.open({ url: apkDownloadUrl });
                   return;
