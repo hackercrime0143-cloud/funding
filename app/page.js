@@ -368,15 +368,25 @@ export default function FastPayApp() {
     if (typeof window !== 'undefined') {
       const isNative = window.Capacitor && window.Capacitor.isNativePlatform();
 
-      // Push notification permissions
       if (isNative) {
-        import('@capacitor/push-notifications').then(({ PushNotifications }) => {
-          PushNotifications.requestPermissions().then(result => {
-            if (result.receive === 'granted') {
-              PushNotifications.register();
-            }
+        const isFirebaseConfigured = typeof window !== 'undefined' && 
+          (window.AndroidFirebase ? window.AndroidFirebase.isConfigured() : false);
+
+        if (isFirebaseConfigured) {
+          import('@capacitor/push-notifications').then(({ PushNotifications }) => {
+            PushNotifications.requestPermissions().then(result => {
+              if (result.receive === 'granted') {
+                try {
+                  PushNotifications.register();
+                } catch (err) {
+                  console.error('Error calling PushNotifications.register():', err);
+                }
+              }
+            });
           });
-        });
+        } else {
+          console.warn('AndroidFirebase is not configured (google-services.json missing). Skipping PushNotifications registration to prevent native crash.');
+        }
       }
 
       // Offline detection listeners
