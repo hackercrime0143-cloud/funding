@@ -1666,7 +1666,7 @@ export default function FastPayApp() {
       return;
     }
     setActiveOrderDetails(scheme);
-    setPaymentStep(1);
+    setPaymentStep(2);
     setPaymentUtr('');
     setPaymentScreenshot(null);
     try {
@@ -6234,6 +6234,47 @@ export default function FastPayApp() {
       {activeTab === 'wallet' && (
         <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
+          {/* Wallet Earnings Dashboard */}
+          <div className="glass-panel" style={{ padding: '20px', background: 'linear-gradient(135deg, rgba(9, 132, 227, 0.15) 0%, rgba(0, 206, 201, 0.05) 100%)', border: '1px solid rgba(9, 132, 227, 0.3)', borderRadius: '16px' }}>
+            <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '14px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              💰 Wallet Earnings & Balances
+            </h3>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              {/* Available Earnings */}
+              <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '10px', border: '1px solid var(--glass-border)' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block' }}>Available Earnings</span>
+                <div style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>
+                  ₹{user?.walletBalance.toFixed(2)}
+                </div>
+              </div>
+
+              {/* Withdrawal Balance */}
+              <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '10px', border: '1px solid var(--glass-border)' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block' }}>Withdrawal Balance</span>
+                <div style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--success)', marginTop: '4px' }}>
+                  ₹{(user?.withdrawableBalance !== undefined ? user.withdrawableBalance : user?.walletBalance || 0).toFixed(2)}
+                </div>
+              </div>
+
+              {/* Daily Profit */}
+              <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '10px', border: '1px solid var(--glass-border)' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block' }}>Daily Profit</span>
+                <div style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--accent-secondary)', marginTop: '4px' }}>
+                  ₹{investmentProfit.toFixed(2)}
+                </div>
+              </div>
+
+              {/* Referral Commission */}
+              <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '10px', border: '1px solid var(--glass-border)' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block' }}>Referral Commission</span>
+                <div style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--accent-primary)', marginTop: '4px' }}>
+                  ₹{commissionProfit.toFixed(2)}
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* Active Schemes Section */}
           <div>
             <h2 style={{ fontSize: '1.25rem', fontWeight: 600 }} className="gradient-text">💼 My Active Schemes</h2>
@@ -6483,242 +6524,147 @@ export default function FastPayApp() {
               </button>
             </div>
 
-            {paymentStep === 1 ? (
-              <>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '24px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--glass-border)', paddingBottom: '10px' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Selected Amount</span>
-                    <strong style={{ fontSize: '1.1rem' }}>₹{activeOrderDetails.price}</strong>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--glass-border)', paddingBottom: '10px' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Daily Return Rate</span>
-                    <strong style={{ color: 'var(--success)' }}>{(activeOrderDetails.daily_return_rate * 100).toFixed(1)}% / day</strong>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--glass-border)', paddingBottom: '10px' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Daily Income</span>
-                    <strong>₹{(activeOrderDetails.price * activeOrderDetails.daily_return_rate).toFixed(2)}</strong>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--glass-border)', paddingBottom: '10px' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Total Payout Return</span>
-                    <strong style={{ color: 'var(--accent-secondary)', fontSize: '1.1rem' }}>₹{activeOrderDetails.total_return}</strong>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--glass-border)', paddingBottom: '10px' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Validity Period</span>
-                    <strong>{activeOrderDetails.days} Days</strong>
-                  </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="animate-fade-in">
+              {/* Scheme Summary */}
+              <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--glass-border)', borderRadius: '12px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.8rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Amount to Pay:</span>
+                  <strong style={{ fontSize: '0.9rem', color: 'var(--text-primary)' }}>₹{activeOrderDetails.price}</strong>
                 </div>
-
-                <button
-                  onClick={() => setPaymentStep(1.5)}
-                  className="gradient-btn"
-                  style={{ width: '100%', padding: '14px', borderRadius: '10px', fontSize: '1rem' }}
-                >
-                  Proceed to Payment
-                </button>
-              </>
-            ) : paymentStep === 1.5 ? (
-              <>
-                <h4 style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: '14px', color: 'var(--text-primary)' }}>Choose Payment Method</h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
-                  
-                  {/* Option 1: Pay using Wallet */}
-                  <div 
-                    className={`glass-panel ${user?.walletBalance >= activeOrderDetails.price ? 'interactive-card' : ''}`}
-                    onClick={user?.walletBalance >= activeOrderDetails.price ? handleWalletPurchaseConfirm : undefined}
-                    style={{
-                      padding: '16px',
-                      border: '1px solid rgba(0, 184, 148, 0.3)',
-                      background: 'rgba(0, 184, 148, 0.05)',
-                      borderRadius: '8px',
-                      cursor: user?.walletBalance >= activeOrderDetails.price ? 'pointer' : 'not-allowed',
-                      opacity: user?.walletBalance >= activeOrderDetails.price ? 1 : 0.5,
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center'
-                    }}
-                  >
-                    <div>
-                      <strong style={{ fontSize: '0.9rem', display: 'block', color: 'var(--text-primary)', textAlign: 'left' }}>💳 Pay Using Wallet Balance</strong>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Available Balance: ₹{user?.walletBalance.toFixed(2)}</span>
-                    </div>
-                    {user?.walletBalance >= activeOrderDetails.price ? (
-                      <span style={{ fontSize: '0.8rem', color: 'var(--success)', fontWeight: 700 }}>Select</span>
-                    ) : (
-                      <span style={{ fontSize: '0.75rem', color: 'var(--error)' }}>Insufficient Balance</span>
-                    )}
-                  </div>
-
-                  {/* Option 2: Pay using Bank Account */}
-                  <div 
-                    className="glass-panel interactive-card"
-                    onClick={() => setPaymentStep(2)}
-                    style={{
-                      padding: '16px',
-                      border: '1px solid var(--glass-border)',
-                      background: 'rgba(255,255,255,0.01)',
-                      borderRadius: '8px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center'
-                    }}
-                  >
-                    <div>
-                      <strong style={{ fontSize: '0.9rem', display: 'block', color: 'var(--text-primary)', textAlign: 'left' }}>🏦 Pay Using Bank Account / QR Code</strong>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', textAlign: 'left' }}>Scan QR code or transfer directly to bank details</span>
-                    </div>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--accent-secondary)', fontWeight: 700 }}>Select</span>
-                  </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Daily Income:</span>
+                  <strong style={{ color: 'var(--success)' }}>₹{(activeOrderDetails.price * activeOrderDetails.daily_return_rate).toFixed(2)}</strong>
                 </div>
-
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button
-                    onClick={() => setPaymentStep(1)}
-                    className="form-input"
-                    style={{ width: 'auto', padding: '12px 20px', borderRadius: '10px', fontSize: '0.9rem', cursor: 'pointer' }}
-                  >
-                    Back
-                  </button>
-                </div>
-              </>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="animate-fade-in">
-
-                {/* 15-Minute Countdown Timer */}
-                {paymentTimer > 0 ? (
-                  <div style={{ padding: '10px', background: 'rgba(0, 206, 201, 0.1)', border: '1px solid rgba(0, 206, 201, 0.2)', borderRadius: '10px', textAlign: 'center' }}>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', letterSpacing: '0.5px' }}>PAYMENT EXPIRES IN</span>
-                    <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--accent-secondary)', marginTop: '2px' }}>
-                      {formatTimerValue(paymentTimer)}
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ padding: '12px', background: 'rgba(255, 118, 117, 0.1)', border: '1px solid rgba(255, 118, 117, 0.2)', borderRadius: '10px', textAlign: 'center', color: 'var(--error)', fontSize: '0.85rem' }}>
-                    <strong>Time Expired:</strong> The 15-minute payment window has closed. Close this modal and submit a new request.
-                  </div>
-                )}
-
-                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textAlign: 'center', marginBottom: '5px' }}>
-                  Scan UPI QR Code or transfer to Bank Account below:
-                </div>
-
-                {/* QR Code */}
-                <div style={{ background: '#fff', padding: '10px', borderRadius: '12px', width: '200px', height: '200px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=${activeOrderBankDetails?.upiId || 'fastpay@upi'}&pn=FastPay&am=${activeOrderDetails.price}&cu=INR`)}`}
-                    alt="Payment QR Code"
-                    style={{ width: '180px', height: '180px' }}
-                  />
-                </div>
-
-                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textAlign: 'center' }}>
-                  UPI ID: <strong style={{ color: 'var(--text-primary)' }}>{activeOrderBankDetails?.upiId || 'fastpay@upi'}</strong>
-                </div>
-
-                {/* Bank details card */}
-                <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', borderRadius: '12px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.8rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Beneficiary Name:</span>
-                    <strong>{activeOrderBankDetails?.beneficiaryName || 'FastPay Ecosystem'}</strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Bank Name:</span>
-                    <strong>{activeOrderBankDetails?.bankName || 'Axis Bank'}</strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Account Number:</span>
-                    <strong>{activeOrderBankDetails?.accountNumber || '912010087654321'}</strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>IFSC Code:</span>
-                    <strong>{activeOrderBankDetails?.ifsc || 'UTIB0000123'}</strong>
-                  </div>
-                </div>
-
-                {/* UTR Input field */}
-                <div style={{ marginTop: '10px' }}>
-                  <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>12-Digit Transaction UTR / Ref Number</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    maxLength={12}
-                    placeholder="Enter 12-digit UTR ID"
-                    value={paymentUtr}
-                    onChange={(e) => setPaymentUtr(e.target.value.replace(/\D/g, ''))}
-                    required
-                  />
-                </div>
-
-                {/* Screenshot Upload field */}
-                <div style={{ marginTop: '10px' }}>
-                  <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Upload Payment Screenshot / Receipt</label>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="form-input"
-                    onChange={(e) => {
-                      const file = e.target.files[0];
-                      if (file) {
-                        const reader = new FileReader();
-                        reader.onloadend = () => {
-                          setPaymentScreenshot(reader.result);
-                        };
-                        reader.readAsDataURL(file);
-                      }
-                    }}
-                    required
-                  />
-                  {paymentScreenshot && (
-                    <div style={{ marginTop: '10px', textAlign: 'center' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Screenshot Preview:</span>
-                      <img
-                        src={paymentScreenshot}
-                        alt="Screenshot Preview"
-                        style={{ maxWidth: '100%', maxHeight: '120px', borderRadius: '8px', border: '1px solid var(--glass-border)' }}
-                      />
-                    </div>
-                  )}
-                </div>
-
-                <button
-                  onClick={() => {
-                    if (paymentUtr.length !== 12) {
-                      alert('Please enter a valid 12-digit UTR number.');
-                      return;
-                    }
-                    if (!paymentScreenshot) {
-                      alert('Please upload a screenshot of your transaction.');
-                      return;
-                    }
-                    handleBuyOrder(activeOrderDetails.id, paymentUtr, paymentScreenshot);
-                  }}
-                  className="gradient-btn"
-                  disabled={paymentTimer === 0}
-                  style={{ width: '100%', padding: '14px', borderRadius: '10px', fontSize: '1rem', marginTop: '10px', opacity: paymentTimer === 0 ? 0.5 : 1 }}
-                >
-                  Submit Payment Details
-                </button>
-
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '5px' }}>
-                  <button
-                    onClick={() => setPaymentStep(1)}
-                    style={{ background: 'none', border: 'none', color: 'var(--accent-secondary)', cursor: 'pointer', fontSize: '0.85rem' }}
-                  >
-                    Go Back
-                  </button>
-                  <button
-                    onClick={handleCancelPurchase}
-                    style={{ background: 'none', border: 'none', color: 'var(--error)', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
-                  >
-                    Cancel Purchase
-                  </button>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Validity Period:</span>
+                  <strong>{activeOrderDetails.days} Days</strong>
                 </div>
               </div>
-            )}
+
+              {/* 15-Minute Countdown Timer */}
+              {paymentTimer > 0 ? (
+                <div style={{ padding: '10px', background: 'rgba(0, 206, 201, 0.1)', border: '1px solid rgba(0, 206, 201, 0.2)', borderRadius: '10px', textAlign: 'center' }}>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', letterSpacing: '0.5px' }}>PAYMENT EXPIRES IN</span>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--accent-secondary)', marginTop: '2px' }}>
+                    {formatTimerValue(paymentTimer)}
+                  </div>
+                </div>
+              ) : (
+                <div style={{ padding: '12px', background: 'rgba(255, 118, 117, 0.1)', border: '1px solid rgba(255, 118, 117, 0.2)', borderRadius: '10px', textAlign: 'center', color: 'var(--error)', fontSize: '0.85rem' }}>
+                  <strong>Time Expired:</strong> The 15-minute payment window has closed. Close this modal and submit a new request.
+                </div>
+              )}
+
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textAlign: 'center', marginBottom: '5px' }}>
+                Scan UPI QR Code or transfer to Bank Account below:
+              </div>
+
+              {/* QR Code */}
+              <div style={{ background: '#fff', padding: '10px', borderRadius: '12px', width: '200px', height: '200px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=${activeOrderBankDetails?.upiId || 'fastpay@upi'}&pn=FastPay&am=${activeOrderDetails.price}&cu=INR`)}`}
+                  alt="Payment QR Code"
+                  style={{ width: '180px', height: '180px' }}
+                />
+              </div>
+
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textAlign: 'center' }}>
+                UPI ID: <strong style={{ color: 'var(--text-primary)' }}>{activeOrderBankDetails?.upiId || 'fastpay@upi'}</strong>
+              </div>
+
+              {/* Bank details card */}
+              <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', borderRadius: '12px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.8rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Beneficiary Name:</span>
+                  <strong>{activeOrderBankDetails?.beneficiaryName || 'FastPay Ecosystem'}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Bank Name:</span>
+                  <strong>{activeOrderBankDetails?.bankName || 'Axis Bank'}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Account Number:</span>
+                  <strong>{activeOrderBankDetails?.accountNumber || '912010087654321'}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>IFSC Code:</span>
+                  <strong>{activeOrderBankDetails?.ifsc || 'UTIB0000123'}</strong>
+                </div>
+              </div>
+
+              {/* UTR Input field */}
+              <div style={{ marginTop: '10px' }}>
+                <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>12-Digit Transaction UTR / Ref Number</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  maxLength={12}
+                  placeholder="Enter 12-digit UTR ID"
+                  value={paymentUtr}
+                  onChange={(e) => setPaymentUtr(e.target.value.replace(/\D/g, ''))}
+                  required
+                />
+              </div>
+
+              {/* Screenshot Upload field */}
+              <div style={{ marginTop: '10px' }}>
+                <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Upload Payment Screenshot / Receipt</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="form-input"
+                  onChange={(e) => {
+                    const file = e.target.files[0];
+                    if (file) {
+                      const reader = new FileReader();
+                      reader.onloadend = () => {
+                        setPaymentScreenshot(reader.result);
+                      };
+                      reader.readAsDataURL(file);
+                    }
+                  }}
+                  required
+                />
+                {paymentScreenshot && (
+                  <div style={{ marginTop: '10px', textAlign: 'center' }}>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Screenshot Preview:</span>
+                    <img
+                      src={paymentScreenshot}
+                      alt="Screenshot Preview"
+                      style={{ maxWidth: '100%', maxHeight: '120px', borderRadius: '8px', border: '1px solid var(--glass-border)' }}
+                    />
+                  </div>
+                )}
+              </div>
+
+              <button
+                onClick={() => {
+                  if (paymentUtr.length !== 12) {
+                    alert('Please enter a valid 12-digit UTR number.');
+                    return;
+                  }
+                  if (!paymentScreenshot) {
+                    alert('Please upload a screenshot of your transaction.');
+                    return;
+                  }
+                  handleBuyOrder(activeOrderDetails.id, paymentUtr, paymentScreenshot);
+                }}
+                className="gradient-btn"
+                disabled={paymentTimer === 0}
+                style={{ width: '100%', padding: '14px', borderRadius: '10px', fontSize: '1rem', marginTop: '10px', opacity: paymentTimer === 0 ? 0.5 : 1 }}
+              >
+                Submit Payment Details
+              </button>
+
+              <div style={{ display: 'flex', justifyContent: 'center', marginTop: '5px' }}>
+                <button
+                  onClick={handleCancelPurchase}
+                  style={{ background: 'none', border: 'none', color: 'var(--error)', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
+                >
+                  Cancel Purchase
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
