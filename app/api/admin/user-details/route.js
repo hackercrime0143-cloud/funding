@@ -111,7 +111,16 @@ export async function GET(request) {
         id: t._id.toString(),
         amount: t.amount,
         status: t.status,
-        created_at: t.created_at
+        created_at: t.created_at,
+        resolved_at: t.resolved_at || null,
+        approved_by_admin_username: t.approved_by_admin_username || null,
+        rejection_reason: t.rejection_reason || '',
+        withdrawal_bank_name: t.withdrawal_bank_name || null,
+        withdrawal_account_name: t.withdrawal_account_name || null,
+        withdrawal_account_number: t.withdrawal_account_number || null,
+        withdrawal_ifsc: t.withdrawal_ifsc || null,
+        withdrawal_upi_id: t.withdrawal_upi_id || null,
+        utr: t.utr || null
       })),
       investments: allOrders.map(o => ({
         id: o._id.toString(),

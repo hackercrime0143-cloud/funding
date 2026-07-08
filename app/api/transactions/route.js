@@ -228,6 +228,13 @@ export async function POST(request) {
       });
 
     } else if (type === 'withdrawal') {
+      // Validate withdrawal amount is a multiple of 100
+      if (reqAmount % 100 !== 0) {
+        return NextResponse.json({
+          error: "Withdrawal amount must be in multiples of ₹100 (₹100, ₹200, ₹300, ₹400...). Please enter a valid amount."
+        }, { status: 400 });
+      }
+
       // Enforce withdrawal eligibility: user must have at least one completed/matured scheme
       const userOrders = await Order.find({ user_id: session.id, status: { $in: ['active', 'expired_pending_match', 'completed'] } });
       const hasMaturedScheme = userOrders.some(order => order.days_remaining === 0 || order.status === 'expired_pending_match' || order.status === 'completed');

@@ -116,6 +116,10 @@ export default function FastPayApp() {
   // Admin Panel States
   const [adminUsers, setAdminUsers] = useState([]);
   const [adminTransactions, setAdminTransactions] = useState([]);
+  const [adminWithdrawals, setAdminWithdrawals] = useState([]);
+  const [adminWithdrawalsTotalPages, setAdminWithdrawalsTotalPages] = useState(1);
+  const [adminWithdrawalsTotalCount, setAdminWithdrawalsTotalCount] = useState(0);
+  const [adminWithdrawalsStats, setAdminWithdrawalsStats] = useState({ totalPendingCount: 0, totalApprovedCount: 0, totalRejectedCount: 0, totalPaidAmount: 0, totalUsersWithdrawn: 0 });
   const [adminOrders, setAdminOrders] = useState([]);
   const [adminSchemes, setAdminSchemes] = useState([]);
   const [adminLoading, setAdminLoading] = useState(false);
@@ -775,6 +779,24 @@ export default function FastPayApp() {
       setAdminLoading(false);
     }
   };
+  const fetchAdminWithdrawals = async (page = 1, filter = 'all', search = '', dateRange = 'all', startDate = '', endDate = '', sort = 'date-desc') => {
+    setAdminLoading(true);
+    try {
+      const url = `/api/admin/withdrawals?page=${page}&limit=10&status=${filter}&search=${encodeURIComponent(search)}&dateRange=${dateRange}&startDate=${startDate}&endDate=${endDate}&sort=${sort}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.success) {
+        setAdminWithdrawals(data.withdrawals);
+        setAdminWithdrawalsTotalPages(data.pagination.pages);
+        setAdminWithdrawalsTotalCount(data.pagination.total);
+        setAdminWithdrawalsStats(data.stats);
+      }
+    } catch (e) {
+      console.error('Error fetching admin withdrawals:', e);
+    } finally {
+      setAdminLoading(false);
+    }
+  };
 
   const fetchAdminOrders = async (page = 1, status = '', search = '') => {
     setAdminLoading(true);
@@ -798,11 +820,19 @@ export default function FastPayApp() {
     try {
       const res = await fetch('/api/admin/notifications');
       const data = await res.json();
+      if (data.success) setAdminNotifications(data.notifications);
+    } catch (e) { }
+  };
+
+  const markAllNotificationsRead = async () => {
+    try {
+      const res = await fetch('/api/admin/notifications', { method: 'POST' });
+      const data = await res.json();
       if (data.success) {
-        setAdminNotifications(data.notifications || []);
+        setAdminNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
       }
     } catch (e) {
-      console.error('Error fetching admin notifications:', e);
+      console.error('Error marking all notifications read:', e);
     }
   };
 
@@ -860,6 +890,8 @@ export default function FastPayApp() {
       fetchAdminTransactions(txPage, adminTxFilter, adminSearchQuery);
     } else if (adminActiveSubTab === 'orders') {
       fetchAdminOrders(ordersPage, adminOrderFilter, adminSearchQuery);
+    } else if (adminActiveSubTab === 'withdrawals') {
+      fetchAdminWithdrawals(withdrawalPage, withdrawalFilter, withdrawalSearchQuery, withdrawalDateRange, withdrawalStartDate, withdrawalEndDate, withdrawalSort);
     }
   };
 
@@ -1172,6 +1204,8 @@ export default function FastPayApp() {
         fetchAdminTransactions(txPage, adminTxFilter, adminSearchQuery);
       } else if (adminActiveSubTab === 'orders') {
         fetchAdminOrders(ordersPage, adminOrderFilter, adminSearchQuery);
+      } else if (adminActiveSubTab === 'withdrawals') {
+        fetchAdminWithdrawals(withdrawalPage, withdrawalFilter, withdrawalSearchQuery, withdrawalDateRange, withdrawalStartDate, withdrawalEndDate, withdrawalSort);
       }
     }
   }, [
@@ -1183,7 +1217,14 @@ export default function FastPayApp() {
     adminTxFilter,
     adminOrderFilter,
     adminSearchQuery,
-    userSearch
+    userSearch,
+    withdrawalPage,
+    withdrawalFilter,
+    withdrawalSearchQuery,
+    withdrawalDateRange,
+    withdrawalStartDate,
+    withdrawalEndDate,
+    withdrawalSort
   ]);
 
   const formatTimerValue = (seconds) => {
@@ -1492,6 +1533,10 @@ export default function FastPayApp() {
       return;
     }
     const amountVal = parseFloat(withdrawAmount);
+    if (amountVal % 100 !== 0) {
+      setTxMessage({ type: 'error', text: 'Withdrawal amount must be in multiples of ₹100 (₹100, ₹200, ₹300, ₹400...). Please enter a valid amount.' });
+      return;
+    }
     const minW = user?.minWithdrawal !== undefined ? user.minWithdrawal : 200;
     const maxW = user?.withdrawableBalance !== undefined ? user.withdrawableBalance : user?.walletBalance;
 
@@ -3674,30 +3719,60 @@ export default function FastPayApp() {
                     </div>
 
                     {/* Withdrawals List */}
-                    <div className="glass-panel" style={{ padding: '16px' }}>
+                    <div className="glass-panel" style={{ padding: '16px', gridColumn: 'span 2' }}>
                       <span style={{ fontSize: '0.75rem', color: 'var(--error)', fontWeight: 700, display: 'block', marginBottom: '10px' }}>💸 WITHDRAWAL HISTORY</span>
                       {adminUserProfileData.withdrawals.length === 0 ? (
                         <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '10px' }}>No withdrawals logged.</div>
                       ) : (
-                        <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                        <div style={{ maxHeight: '250px', overflowY: 'auto' }}>
                           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem', textAlign: 'left' }}>
                             <thead>
                               <tr style={{ borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)' }}>
-                                <th style={{ padding: '4px' }}>Amount</th>
-                                <th style={{ padding: '4px' }}>Date</th>
-                                <th style={{ padding: '4px' }}>Status</th>
+                                <th style={{ padding: '6px' }}>Amount</th>
+                                <th style={{ padding: '6px' }}>Bank / UPI Details</th>
+                                <th style={{ padding: '6px' }}>Status</th>
+                                <th style={{ padding: '6px' }}>UTR / Reference</th>
+                                <th style={{ padding: '6px' }}>Requested</th>
+                                <th style={{ padding: '6px' }}>Resolved</th>
                               </tr>
                             </thead>
                             <tbody>
                               {adminUserProfileData.withdrawals.map((w) => (
                                 <tr key={w.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
-                                  <td style={{ padding: '6px 4px' }}>₹{Math.abs(w.amount).toFixed(2)}</td>
-                                  <td style={{ padding: '6px 4px' }}>{new Date(w.created_at).toLocaleDateString()}</td>
-                                  <td style={{ padding: '6px 4px' }}>
+                                  <td style={{ padding: '8px 6px', fontWeight: 600, color: 'var(--error)' }}>-₹{Math.abs(w.amount).toFixed(2)}</td>
+                                  <td style={{ padding: '8px 6px', fontSize: '0.7rem' }}>
+                                    {w.withdrawal_bank_name ? (
+                                      <div>
+                                        <strong>{w.withdrawal_bank_name}</strong><br/>
+                                        A/C: {w.withdrawal_account_number}<br/>
+                                        IFSC: {w.withdrawal_ifsc}
+                                      </div>
+                                    ) : w.withdrawal_upi_id ? (
+                                      <div>UPI: {w.withdrawal_upi_id}</div>
+                                    ) : 'N/A'}
+                                  </td>
+                                  <td style={{ padding: '8px 6px' }}>
                                     <span style={{
                                       color: w.status === 'completed' ? 'var(--success)' : w.status === 'pending' ? 'var(--gold)' : 'var(--error)',
-                                      fontWeight: 700
-                                    }}>{w.status}</span>
+                                      fontWeight: 700,
+                                      textTransform: 'capitalize'
+                                    }}>{w.status === 'completed' ? 'Paid' : w.status}</span>
+                                  </td>
+                                  <td style={{ padding: '8px 6px', fontSize: '0.7rem' }}>
+                                    {w.status === 'completed' ? (
+                                      <div>
+                                        <strong>UTR:</strong> {w.utr || '—'}<br/>
+                                        <span style={{ color: 'var(--text-secondary)' }}>by {w.approved_by_admin_username || 'Admin'}</span>
+                                      </div>
+                                    ) : w.status === 'failed' || w.status === 'rejected' ? (
+                                      <div style={{ color: 'var(--error)' }}>
+                                        <strong>Rejected:</strong> {w.rejection_reason || 'No reason'}
+                                      </div>
+                                    ) : '—'}
+                                  </td>
+                                  <td style={{ padding: '8px 6px' }}>{new Date(w.created_at).toLocaleString()}</td>
+                                  <td style={{ padding: '8px 6px' }}>
+                                    {w.status !== 'pending' ? new Date(w.resolved_at || w.created_at).toLocaleString() : '—'}
                                   </td>
                                 </tr>
                               ))}
@@ -4430,13 +4505,13 @@ export default function FastPayApp() {
                 </div>
 
                 <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--error)', padding: '20px', borderRadius: '6px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
-                  <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>SETTLED WITHDRAWALS</span>
+                  <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>💸 Total Withdrawals Paid</span>
                   <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--error)', fontFamily: 'monospace', margin: '6px 0' }}>
-                    ₹{adminStats.totalWithdrawals.toFixed(2)}
+                    ₹{adminStats.totalWithdrawals.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
-                    <span>Pending Cashouts</span>
-                    <span>{adminStats.pendingWithdrawalsCount} reqs (₹{adminStats.pendingWithdrawalsTotal.toFixed(0)})</span>
+                    <span>{adminStats.completedWithdrawalsCount || 0} Withdrawals Completed</span>
+                    <span>Pending: {adminStats.pendingWithdrawalsCount}</span>
                   </div>
                 </div>
               </div>
@@ -5477,62 +5552,49 @@ export default function FastPayApp() {
               <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)' }}>Platform Withdrawal Manager</h3>
 
               {/* Summary Cards */}
-              {(() => {
-                const wtxs = adminTransactions.filter(t => t.type === 'withdrawal');
-                const totalAmount = wtxs.filter(t => t.status === 'completed').reduce((sum, t) => sum + Math.abs(t.amount), 0);
-                const totalRequests = wtxs.length;
-                const pendingCount = wtxs.filter(t => t.status === 'pending').reduce((sum, t) => sum + Math.abs(t.amount), 0);
-                const approvedCount = wtxs.filter(t => t.status === 'completed').reduce((sum, t) => sum + Math.abs(t.amount), 0);
-                const rejectedCount = wtxs.filter(t => t.status === 'failed').reduce((sum, t) => sum + Math.abs(t.amount), 0);
-
-                return (
-                  <>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
-                      <div className="glass-panel" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', padding: '16px', borderRadius: '6px' }}>
-                        <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>Total Withdrawal Volume</span>
-                        <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--success)', fontFamily: 'monospace', marginTop: '6px' }}>
-                          ₹{totalAmount.toFixed(2)}
-                        </div>
-                      </div>
-                      <div className="glass-panel" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', padding: '16px', borderRadius: '6px' }}>
-                        <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>Total Requests</span>
-                        <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'monospace', marginTop: '6px' }}>
-                          {totalRequests}
-                        </div>
-                      </div>
-                      <div className="glass-panel" style={{ background: 'var(--bg-secondary)', border: '1px solid rgba(253, 203, 110, 0.4)', padding: '16px', borderRadius: '6px' }}>
-                        <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>Pending Requests Sum</span>
-                        <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--gold)', fontFamily: 'monospace', marginTop: '6px' }}>
-                          ₹{pendingCount.toFixed(2)}
-                        </div>
-                      </div>
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                      <div className="glass-panel" style={{ background: 'var(--bg-secondary)', border: '1px solid rgba(0, 184, 148, 0.4)', padding: '16px', borderRadius: '6px' }}>
-                        <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>Approved Requests Sum</span>
-                        <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--success)', fontFamily: 'monospace', marginTop: '6px' }}>
-                          ₹{approvedCount.toFixed(2)}
-                        </div>
-                      </div>
-                      <div className="glass-panel" style={{ background: 'var(--bg-secondary)', border: '1px solid rgba(255, 118, 117, 0.4)', padding: '16px', borderRadius: '6px' }}>
-                        <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>Rejected Requests Sum</span>
-                        <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--error)', fontFamily: 'monospace', marginTop: '6px' }}>
-                          ₹{rejectedCount.toFixed(2)}
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                );
-              })()}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                <div className="glass-panel" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', padding: '16px', borderRadius: '6px' }}>
+                  <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>Total Pending Withdrawals</span>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--gold)', fontFamily: 'monospace', marginTop: '6px' }}>
+                    {adminWithdrawalsStats.totalPendingCount || 0} reqs
+                  </div>
+                </div>
+                <div className="glass-panel" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', padding: '16px', borderRadius: '6px' }}>
+                  <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>Total Approved Withdrawals</span>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--success)', fontFamily: 'monospace', marginTop: '6px' }}>
+                    {adminWithdrawalsStats.totalApprovedCount || 0} reqs
+                  </div>
+                </div>
+                <div className="glass-panel" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', padding: '16px', borderRadius: '6px' }}>
+                  <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>Total Rejected Withdrawals</span>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--error)', fontFamily: 'monospace', marginTop: '6px' }}>
+                    {adminWithdrawalsStats.totalRejectedCount || 0} reqs
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div className="glass-panel" style={{ background: 'var(--bg-secondary)', border: '1px solid rgba(0, 184, 148, 0.4)', padding: '16px', borderRadius: '6px' }}>
+                  <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>Total Withdrawals Paid (₹)</span>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--success)', fontFamily: 'monospace', marginTop: '6px' }}>
+                    ₹{(adminWithdrawalsStats.totalPaidAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                </div>
+                <div className="glass-panel" style={{ background: 'var(--bg-secondary)', border: '1px solid rgba(9, 132, 227, 0.4)', padding: '16px', borderRadius: '6px' }}>
+                  <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>Total Users Who Have Received Withdrawals</span>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--accent-secondary)', fontFamily: 'monospace', marginTop: '6px' }}>
+                    {adminWithdrawalsStats.totalUsersWithdrawn || 0} users
+                  </div>
+                </div>
+              </div>
 
               {/* Filters & Search UI */}
               <div className="glass-panel" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr 1fr', gap: '10px' }}>
                   <div>
-                    <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>SEARCH USER</label>
+                    <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>SEARCH USER / ID / AMOUNT</label>
                     <input
                       type="text"
-                      placeholder="Username, ID, or Phone..."
+                      placeholder="Name, Phone, ID, Amount..."
                       value={withdrawalSearchQuery}
                       onChange={(e) => { setWithdrawalSearchQuery(e.target.value); setWithdrawalPage(1); }}
                       className="form-input"
@@ -5549,8 +5611,8 @@ export default function FastPayApp() {
                     >
                       <option value="all">📁 All Statuses</option>
                       <option value="pending">⏳ Pending Resolve</option>
-                      <option value="approved">✅ Approved</option>
-                      <option value="rejected">❌ Rejected</option>
+                      <option value="approved">✅ Approved / Paid</option>
+                      <option value="rejected">❌ Rejected / Failed</option>
                     </select>
                   </div>
                   <div>
@@ -5612,63 +5674,8 @@ export default function FastPayApp() {
 
               {/* Withdrawals List Rendering */}
               {(() => {
-                let list = adminTransactions.filter(t => t.type === 'withdrawal');
-
-                // Search query filter
-                if (withdrawalSearchQuery.trim()) {
-                  const q = withdrawalSearchQuery.toLowerCase().trim();
-                  list = list.filter(t => {
-                    const uName = t.user_name ? t.user_name.toLowerCase() : '';
-                    const uId = t.user_id ? t.user_id.toLowerCase() : '';
-                    const uPhone = t.user_phone ? t.user_phone.toLowerCase() : '';
-                    return uName.includes(q) || uId.includes(q) || uPhone.includes(q);
-                  });
-                }
-
-                // Status Filter
-                if (withdrawalFilter !== 'all') {
-                  const targetStatus = withdrawalFilter === 'approved' ? 'completed' : withdrawalFilter === 'rejected' ? 'failed' : 'pending';
-                  list = list.filter(t => t.status === targetStatus);
-                }
-
-                // Date Filter
-                if (withdrawalDateRange !== 'all') {
-                  const now = new Date();
-                  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-
-                  if (withdrawalDateRange === 'today') {
-                    list = list.filter(t => new Date(t.created_at).getTime() >= startOfDay);
-                  } else if (withdrawalDateRange === 'week') {
-                    const oneWeekAgo = now.getTime() - 7 * 24 * 60 * 60 * 1000;
-                    list = list.filter(t => new Date(t.created_at).getTime() >= oneWeekAgo);
-                  } else if (withdrawalDateRange === 'month') {
-                    const oneMonthAgo = now.getTime() - 30 * 24 * 60 * 60 * 1000;
-                    list = list.filter(t => new Date(t.created_at).getTime() >= oneMonthAgo);
-                  } else if (withdrawalDateRange === 'custom') {
-                    if (withdrawalStartDate) {
-                      const start = new Date(withdrawalStartDate).getTime();
-                      list = list.filter(t => new Date(t.created_at).getTime() >= start);
-                    }
-                    if (withdrawalEndDate) {
-                      const end = new Date(withdrawalEndDate).getTime() + 24 * 60 * 60 * 1000; // end of that day
-                      list = list.filter(t => new Date(t.created_at).getTime() <= end);
-                    }
-                  }
-                }
-
-                // Sorting
-                list.sort((a, b) => {
-                  if (withdrawalSort === 'date-desc') return new Date(b.created_at) - new Date(a.created_at);
-                  if (withdrawalSort === 'date-asc') return new Date(a.created_at) - new Date(b.created_at);
-                  if (withdrawalSort === 'amount-desc') return Math.abs(b.amount) - Math.abs(a.amount);
-                  if (withdrawalSort === 'amount-asc') return Math.abs(a.amount) - Math.abs(b.amount);
-                  return 0;
-                });
-
-                // Pagination Calculation
-                const itemsPerPage = 10;
-                const totalPages = Math.ceil(list.length / itemsPerPage) || 1;
-                const paginated = list.slice((withdrawalPage - 1) * itemsPerPage, withdrawalPage * itemsPerPage);
+                const list = adminWithdrawals;
+                const totalPages = adminWithdrawalsTotalPages;
 
                 if (list.length === 0) {
                   return (
@@ -5681,16 +5688,15 @@ export default function FastPayApp() {
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                      {paginated.map((item) => {
-                        const user = adminUsers.find(u => u.id === item.user_id);
+                      {list.map((item) => {
                         let statusColor = 'var(--text-secondary)';
                         let statusBg = 'rgba(255, 255, 255, 0.05)';
                         let statusText = 'Pending';
                         if (item.status === 'completed') {
                           statusColor = 'var(--success)';
                           statusBg = 'rgba(0, 184, 148, 0.1)';
-                          statusText = 'Approved';
-                        } else if (item.status === 'failed') {
+                          statusText = 'Paid';
+                        } else if (item.status === 'failed' || item.status === 'rejected' || item.status === 'cancelled') {
                           statusColor = 'var(--error)';
                           statusBg = 'rgba(255, 118, 117, 0.1)';
                           statusText = 'Rejected';
@@ -5711,10 +5717,10 @@ export default function FastPayApp() {
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                               <div>
                                 <h4 style={{ fontWeight: 600, margin: 0, fontSize: '0.9rem' }}>
-                                  User: {item.user_name}
+                                  User Name: {item.user_name}
                                 </h4>
                                 <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                                  Phone: {item.user_phone} | ID: {item.user_id}
+                                  Phone: {item.user_phone} | User ID: {item.user_id}
                                 </span>
                               </div>
                               <div style={{ textAlign: 'right' }}>
@@ -5730,19 +5736,25 @@ export default function FastPayApp() {
                             {/* Settlement Bank/UPI Details */}
                             <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', padding: '10px', borderRadius: '6px', fontSize: '0.75rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
                               <div>Bank Name: <strong>{item.withdrawal_bank_name || 'UPI/Bank'}</strong></div>
-                              <div>Bank/UPI Beneficiary: <strong>{item.withdrawal_account_name || user?.bankDetails?.accountName || 'Unknown'}</strong></div>
-                              <div>UPI ID: <strong style={{ color: 'var(--accent-secondary)' }}>{item.withdrawal_upi_id || user?.bankDetails?.upiId || 'Not Linked'}</strong></div>
-                              <div>Account Number: <strong>{item.withdrawal_account_number || user?.bankDetails?.accountNumber || 'Not Linked'}</strong></div>
-                              <div>IFSC Code: <strong>{item.withdrawal_ifsc || user?.bankDetails?.ifsc || 'Not Linked'}</strong></div>
-                              <div>Wallet Balance (Request Time): <strong>₹{(item.wallet_balance_at_request || user?.wallet_balance || 0).toFixed(2)}</strong></div>
-                              {item.rejection_reason && <div style={{ gridColumn: 'span 2', color: 'var(--error)' }}>Reason: <strong>{item.rejection_reason}</strong></div>}
+                              <div>Bank/UPI Beneficiary: <strong>{item.withdrawal_account_name || 'Unknown'}</strong></div>
+                              <div>UPI ID: <strong style={{ color: 'var(--accent-secondary)' }}>{item.withdrawal_upi_id || 'Not Linked'}</strong></div>
+                              <div>Account Number: <strong>{item.withdrawal_account_number || 'Not Linked'}</strong></div>
+                              <div>IFSC Code: <strong>{item.withdrawal_ifsc || 'Not Linked'}</strong></div>
+                              <div>Wallet Balance (Request Time): <strong>₹{(item.wallet_balance_at_request || 0).toFixed(2)}</strong></div>
+                              {item.rejection_reason && <div style={{ gridColumn: 'span 2', color: 'var(--error)' }}>Rejection Reason: <strong>{item.rejection_reason}</strong></div>}
+                              {item.status === 'completed' && (
+                                <div style={{ gridColumn: 'span 2', color: 'var(--success)', display: 'flex', flexDirection: 'column', gap: '2px', borderTop: '1px solid var(--glass-border)', paddingTop: '6px', marginTop: '4px' }}>
+                                  <div>Approved By: <strong>{item.approved_by_admin_username || 'Admin'}</strong></div>
+                                  <div>Transaction / UTR Reference: <strong>{item.utr || 'N/A'}</strong></div>
+                                </div>
+                              )}
                             </div>
 
                             {/* Timeline */}
                             <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--glass-border)', paddingTop: '8px' }}>
-                              <span>Requested: {new Date(item.created_at).toLocaleString()}</span>
+                              <span>Request Date & Time: {new Date(item.created_at).toLocaleString()}</span>
                               {item.status !== 'pending' && (
-                                <span>Resolved: {new Date(item.resolved_at || item.updated_at || item.created_at).toLocaleString()}</span>
+                                <span>Approval Date & Time: {new Date(item.resolved_at || item.created_at).toLocaleString()}</span>
                               )}
                             </div>
 
@@ -5750,7 +5762,12 @@ export default function FastPayApp() {
                             {item.status === 'pending' && (
                               <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
                                 <button
-                                  onClick={() => handleAdminAction('approveTransaction', { transactionId: item.id })}
+                                  onClick={() => {
+                                    const utr = prompt('Enter Transaction Ref / UTR number (optional):');
+                                    if (utr !== null) {
+                                      handleAdminAction('approveTransaction', { transactionId: item.id, utr });
+                                    }
+                                  }}
                                   className="gradient-btn"
                                   style={{ flex: 1, padding: '8px', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 700 }}
                                 >
@@ -5786,7 +5803,7 @@ export default function FastPayApp() {
                           ◀ Previous
                         </button>
                         <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                          Page {withdrawalPage} of {totalPages} ({list.length} requests)
+                          Page {withdrawalPage} of {totalPages} ({adminWithdrawalsTotalCount} requests)
                         </span>
                         <button
                           disabled={withdrawalPage === totalPages}

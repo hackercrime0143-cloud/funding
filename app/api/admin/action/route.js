@@ -80,7 +80,7 @@ export async function POST(request) {
     }
     
     else if (action === 'approveTransaction') {
-      const { transactionId } = payload;
+      const { transactionId, utr } = payload;
       if (!transactionId) {
         return NextResponse.json({ error: 'Transaction ID is required.' }, { status: 400 });
       }
@@ -96,6 +96,9 @@ export async function POST(request) {
 
       // Complete the transaction
       tx.status = 'completed';
+      if (utr) {
+        tx.utr = utr.trim();
+      }
       tx.updated_at = new Date();
       tx.resolved_at = new Date();
       tx.approved_by_admin_id = adminCheck._id;

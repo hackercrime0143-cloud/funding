@@ -65,6 +65,7 @@ export async function GET(request) {
       { $group: { _id: null, total: { $sum: '$amount' } } }
     ]);
     const totalWithdrawals = approvedWithdrawalsSum[0] ? Math.abs(approvedWithdrawalsSum[0].total) : 0;
+    const completedWithdrawalsCount = await Transaction.countDocuments({ type: 'withdrawal', status: 'completed' });
 
     // 5. Pending Withdrawals
     const pendingWithdrawalsAgg = await Transaction.aggregate([
@@ -94,6 +95,7 @@ export async function GET(request) {
       pendingDepositsCount,
       pendingDepositsTotal,
       totalWithdrawals,
+      completedWithdrawalsCount,
       pendingWithdrawalsCount,
       pendingWithdrawalsTotal,
       activeInvestments
