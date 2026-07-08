@@ -205,7 +205,7 @@ export async function POST(request) {
         deposit_bank_name: virtualAcc.bank_name,
         deposit_account_number: virtualAcc.account_number,
         deposit_beneficiary_name: virtualAcc.beneficiary_name,
-        deposit_upi_id: virtualAcc.upi_id || "fastpay@upi",
+        deposit_upi_id: virtualAcc.upi_id || "",
         deposit_qr_code: virtualAcc.qr_code || ""
       });
 

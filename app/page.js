@@ -1828,11 +1828,11 @@ export default function FastPayApp() {
       setCurrentDraftOrderCreatedAt(order.created_at);
       setActiveOrderDetails(scheme);
       setActiveOrderBankDetails({
-        accountNumber: order.virtual_account || "912010087654321",
-        bankName: order.virtual_bank || "Axis Bank",
-        beneficiaryName: order.virtual_beneficiary || "FastPay Ecosystem",
-        ifsc: order.virtual_ifsc || "UTIB0000123",
-        upiId: order.virtual_upi || "fastpay@upi"
+        accountNumber: order.virtual_account || "",
+        bankName: order.virtual_bank || "",
+        beneficiaryName: order.virtual_beneficiary || "",
+        ifsc: order.virtual_ifsc || "",
+        upiId: order.virtual_upi || ""
       });
 
       // Calculate countdown timer dynamically based on order's created_at
@@ -4182,11 +4182,11 @@ export default function FastPayApp() {
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span style={{ color: 'var(--text-secondary)' }}>Assigned Bank Account:</span>
-                        <strong>{adminSelectedOrder.virtual_account || '912010087654321'}</strong>
+                        <strong>{adminSelectedOrder.virtual_account || 'N/A'}</strong>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span style={{ color: 'var(--text-secondary)' }}>Assigned UPI ID:</span>
-                        <strong>{adminSelectedOrder.virtual_upi || 'fastpay@upi'}</strong>
+                        <strong>{adminSelectedOrder.virtual_upi || 'N/A'}</strong>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span style={{ color: 'var(--text-secondary)' }}>Submitted UTR:</span>
@@ -4264,16 +4264,18 @@ export default function FastPayApp() {
                       </div>
                     )}
 
-                    <div style={{ marginTop: '10px' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Assigned Account QR:</span>
-                      <div style={{ background: '#fff', padding: '10px', borderRadius: '8px', width: '120px', height: '120px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <img
-                          src={adminSelectedOrder.virtual_qr_code ? adminSelectedOrder.virtual_qr_code : `https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(`upi://pay?pa=${adminSelectedOrder.virtual_upi || 'fastpay@upi'}&pn=FastPay&am=${adminSelectedOrder.price}&cu=INR`)}`}
-                          alt="QR Code"
-                          style={{ width: '100px', height: '100px', objectFit: 'contain' }}
-                        />
+                    {(adminSelectedOrder.virtual_qr_code || adminSelectedOrder.virtual_upi) && (
+                      <div style={{ marginTop: '10px' }}>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Assigned Account QR:</span>
+                        <div style={{ background: '#fff', padding: '10px', borderRadius: '8px', width: '120px', height: '120px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <img
+                            src={adminSelectedOrder.virtual_qr_code ? adminSelectedOrder.virtual_qr_code : `https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(`upi://pay?pa=${adminSelectedOrder.virtual_upi}&pn=FastPay&am=${adminSelectedOrder.price}&cu=INR`)}`}
+                            alt="QR Code"
+                            style={{ width: '100px', height: '100px', objectFit: 'contain' }}
+                          />
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -4338,32 +4340,36 @@ export default function FastPayApp() {
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span style={{ color: 'var(--text-secondary)' }}>Account Number:</span>
-                        <strong>{adminSelectedOrder.virtual_account || '912010087654321'}</strong>
+                        <strong>{adminSelectedOrder.virtual_account || 'N/A'}</strong>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span style={{ color: 'var(--text-secondary)' }}>IFSC Code:</span>
-                        <strong>{adminSelectedOrder.virtual_ifsc || 'UTIB0000123'}</strong>
+                        <strong>{adminSelectedOrder.virtual_ifsc || 'N/A'}</strong>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span style={{ color: 'var(--text-secondary)' }}>UPI ID:</span>
-                        <strong>{adminSelectedOrder.virtual_upi || 'fastpay@upi'}</strong>
+                        <strong>{adminSelectedOrder.virtual_upi || 'N/A'}</strong>
                       </div>
                     </div>
                   </div>
 
                   {/* Right Column: QR and Instructions */}
                   <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px', justifyContent: 'center' }}>
-                    <div style={{ textAlign: 'center', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '5px' }}>
-                      Assigned UPI QR Code:
-                    </div>
+                    {(adminSelectedOrder.virtual_qr_code || adminSelectedOrder.virtual_upi) && (
+                      <>
+                        <div style={{ textAlign: 'center', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '5px' }}>
+                          Assigned UPI QR Code:
+                        </div>
 
-                    <div style={{ background: '#fff', padding: '10px', borderRadius: '12px', width: '180px', height: '180px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <img
-                        src={adminSelectedOrder.virtual_qr_code ? adminSelectedOrder.virtual_qr_code : `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(`upi://pay?pa=${adminSelectedOrder.virtual_upi || 'fastpay@upi'}&pn=FastPay&am=${adminSelectedOrder.price}&cu=INR`)}`}
-                        alt="QR Code"
-                        style={{ width: '160px', height: '160px', objectFit: 'contain' }}
-                      />
-                    </div>
+                        <div style={{ background: '#fff', padding: '10px', borderRadius: '12px', width: '180px', height: '180px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <img
+                            src={adminSelectedOrder.virtual_qr_code ? adminSelectedOrder.virtual_qr_code : `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(`upi://pay?pa=${adminSelectedOrder.virtual_upi}&pn=FastPay&am=${adminSelectedOrder.price}&cu=INR`)}`}
+                            alt="QR Code"
+                            style={{ width: '160px', height: '160px', objectFit: 'contain' }}
+                          />
+                        </div>
+                      </>
+                    )}
 
                     <div style={{ border: '1px solid rgba(253, 203, 110, 0.2)', background: 'rgba(253, 203, 110, 0.05)', padding: '12px', borderRadius: '10px', fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
                       <strong style={{ color: 'var(--gold)', display: 'block', marginBottom: '4px' }}>Payment Instructions:</strong>
@@ -6577,35 +6583,39 @@ export default function FastPayApp() {
               </div>
 
               {/* QR Code */}
-              <div style={{ background: '#fff', padding: '10px', borderRadius: '12px', width: '200px', height: '200px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=${activeOrderBankDetails?.upiId || 'fastpay@upi'}&pn=FastPay&am=${activeOrderDetails.price}&cu=INR`)}`}
-                  alt="Payment QR Code"
-                  style={{ width: '180px', height: '180px' }}
-                />
-              </div>
+              {activeOrderBankDetails?.upiId && (
+                <>
+                  <div style={{ background: '#fff', padding: '10px', borderRadius: '12px', width: '200px', height: '200px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=${activeOrderBankDetails.upiId}&pn=FastPay&am=${activeOrderDetails.price}&cu=INR`)}`}
+                      alt="Payment QR Code"
+                      style={{ width: '180px', height: '180px' }}
+                    />
+                  </div>
 
-              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textAlign: 'center' }}>
-                UPI ID: <strong style={{ color: 'var(--text-primary)' }}>{activeOrderBankDetails?.upiId || 'fastpay@upi'}</strong>
-              </div>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textAlign: 'center' }}>
+                    UPI ID: <strong style={{ color: 'var(--text-primary)' }}>{activeOrderBankDetails.upiId}</strong>
+                  </div>
+                </>
+              )}
 
               {/* Bank details card */}
               <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', borderRadius: '12px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.8rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: 'var(--text-secondary)' }}>Beneficiary Name:</span>
-                  <strong>{activeOrderBankDetails?.beneficiaryName || 'FastPay Ecosystem'}</strong>
+                  <strong>{activeOrderBankDetails?.beneficiaryName || 'N/A'}</strong>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: 'var(--text-secondary)' }}>Bank Name:</span>
-                  <strong>{activeOrderBankDetails?.bankName || 'Axis Bank'}</strong>
+                  <strong>{activeOrderBankDetails?.bankName || 'N/A'}</strong>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: 'var(--text-secondary)' }}>Account Number:</span>
-                  <strong>{activeOrderBankDetails?.accountNumber || '912010087654321'}</strong>
+                  <strong>{activeOrderBankDetails?.accountNumber || 'N/A'}</strong>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: 'var(--text-secondary)' }}>IFSC Code:</span>
-                  <strong>{activeOrderBankDetails?.ifsc || 'UTIB0000123'}</strong>
+                  <strong>{activeOrderBankDetails?.ifsc || 'N/A'}</strong>
                 </div>
               </div>
 
@@ -6746,18 +6756,22 @@ export default function FastPayApp() {
                 </div>
 
                 {/* QR Code */}
-                <div style={{ background: '#fff', padding: '10px', borderRadius: '12px', width: '200px', height: '200px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=${virtualAccount?.upiId || 'fastpay@upi'}&pn=FastPay&am=${virtualAccount.amount}&cu=INR`)}`}
-                    alt="Payment QR Code"
-                    style={{ width: '180px', height: '180px' }}
-                  />
-                </div>
+                {virtualAccount?.upiId && (
+                  <>
+                    <div style={{ background: '#fff', padding: '10px', borderRadius: '12px', width: '200px', height: '200px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <img
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=${virtualAccount.upiId}&pn=FastPay&am=${virtualAccount.amount}&cu=INR`)}`}
+                        alt="Payment QR Code"
+                        style={{ width: '180px', height: '180px' }}
+                      />
+                    </div>
 
-                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textAlign: 'center', display: 'flex', justifyContent: 'center', gap: '6px', alignItems: 'center' }}>
-                  <span>UPI ID: <strong style={{ color: 'var(--text-primary)' }}>{virtualAccount?.upiId || 'fastpay@upi'}</strong></span>
-                  <button onClick={() => copyToClipboard(virtualAccount?.upiId || 'fastpay@upi')} style={{ background: 'none', border: 'none', color: 'var(--accent-secondary)', cursor: 'pointer' }}><Copy size={12} /></button>
-                </div>
+                    <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textAlign: 'center', display: 'flex', justifyContent: 'center', gap: '6px', alignItems: 'center' }}>
+                      <span>UPI ID: <strong style={{ color: 'var(--text-primary)' }}>{virtualAccount.upiId}</strong></span>
+                      <button onClick={() => copyToClipboard(virtualAccount.upiId)} style={{ background: 'none', border: 'none', color: 'var(--accent-secondary)', cursor: 'pointer' }}><Copy size={12} /></button>
+                    </div>
+                  </>
+                )}
 
                 {/* Bank details card */}
                 <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.85rem' }}>

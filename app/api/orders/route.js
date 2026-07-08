@@ -167,13 +167,13 @@ export async function POST(request) {
             bankName: matchedVa.bank_name,
             beneficiaryName: matchedVa.beneficiary_name,
             ifsc: matchedVa.ifsc,
-            upiId: matchedVa.upi_id
+            upiId: matchedVa.upi_id || ""
           } : {
-            accountNumber: "912010087654321",
-            bankName: "Axis Bank",
-            beneficiaryName: "FastPay Ecosystem",
-            ifsc: "UTIB0000123",
-            upiId: "fastpay@upi"
+            accountNumber: "",
+            bankName: "",
+            beneficiaryName: "",
+            ifsc: "",
+            upiId: ""
           }
         });
       }
@@ -277,18 +277,18 @@ export async function POST(request) {
       deposit_bank_name: virtualAcc.bank_name,
       deposit_account_number: virtualAcc.account_number,
       deposit_beneficiary_name: virtualAcc.beneficiary_name,
-      deposit_upi_id: virtualAcc.upi_id || "fastpay@upi",
+      deposit_upi_id: virtualAcc.upi_id || "",
       deposit_qr_code: virtualAcc.qr_code || "",
       created_at: newOrder.created_at,
       updated_at: newOrder.created_at
     });
 
     const fallbackVa = {
-      accountNumber: "912010087654321",
-      bankName: "Axis Bank",
-      beneficiaryName: "FastPay Ecosystem",
-      ifsc: "UTIB0000123",
-      upiId: "fastpay@upi"
+      accountNumber: "",
+      bankName: "",
+      beneficiaryName: "",
+      ifsc: "",
+      upiId: ""
     };
 
     return NextResponse.json({
@@ -301,7 +301,7 @@ export async function POST(request) {
         bankName: virtualAcc.bank_name,
         beneficiaryName: virtualAcc.beneficiary_name,
         ifsc: virtualAcc.ifsc,
-        upiId: virtualAcc.upi_id || "fastpay@upi",
+        upiId: virtualAcc.upi_id || "",
         qrCode: virtualAcc.qr_code || ""
       } : fallbackVa
     });
