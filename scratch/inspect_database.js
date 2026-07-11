@@ -45,7 +45,7 @@ async function run() {
       console.log(`  UTR: ${o.utr}`);
       console.log(`  Status: ${o.status}`);
       console.log(`  VA ID: ${o.virtual_account_id || 'None (Fallback)'}`);
-      console.log(`  VA UPI ID: ${va ? va.upi_id : 'None (Fallback fastpay@upi)'}`);
+      console.log(`  VA UPI ID: ${va ? va.upi_id : 'None'}`);
       console.log(`  Created At: ${o.created_at}`);
       console.log('------------------------------------');
     }

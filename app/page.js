@@ -123,6 +123,18 @@ export default function FastPayApp() {
   const [adminSpinStats, setAdminSpinStats] = useState(null);
   const [adminSpinLoading, setAdminSpinLoading] = useState(false);
 
+  // Admin Lottery States
+  const [adminLotteryConfig, setAdminLotteryConfig] = useState(null);
+  const [adminLotteryStats, setAdminLotteryStats] = useState(null);
+  const [adminLotteryTickets, setAdminLotteryTickets] = useState([]);
+  const [adminLotteryWinners, setAdminLotteryWinners] = useState([]);
+  const [adminLotteryDraws, setAdminLotteryDraws] = useState([]);
+  const [adminLotteryLoading, setAdminLotteryLoading] = useState(false);
+  const [adminLotterySearch, setAdminLotterySearch] = useState('');
+  const [adminLotteryStatusFilter, setAdminLotteryStatusFilter] = useState('');
+  const [adminLotteryWeekFilter, setAdminLotteryWeekFilter] = useState('');
+  const [adminSelectedWeekDetails, setAdminSelectedWeekDetails] = useState(null);
+
   // Activity & Spin States
   const [activityView, setActivityView] = useState(null); // null or 'spin'
   const [spinLoading, setSpinLoading] = useState(false);
@@ -131,6 +143,11 @@ export default function FastPayApp() {
   const [spinResultModal, setSpinResultModal] = useState(null); // null or { prize, type, value }
   const [spinWheelIsSpinning, setSpinWheelIsSpinning] = useState(false);
   const [spinTargetIndex, setSpinTargetIndex] = useState(null);
+
+  // Lottery States
+  const [lotteryData, setLotteryData] = useState({ config: { ticketPrice: 100, multiplier: 2, salesEnabled: true }, isSunday: false, winningCode: null, tickets: [] });
+  const [lotteryLoading, setLotteryLoading] = useState(false);
+  const [buyLotteryLoading, setBuyLotteryLoading] = useState(false);
 
   // Search, sort, filter, and pagination states
   const [userSearch, setUserSearch] = useState('');
@@ -374,7 +391,10 @@ export default function FastPayApp() {
       const isMobileWidth = window.innerWidth <= 768;
       const isNative = window.Capacitor && window.Capacitor.isNativePlatform();
 
-      if (!isNative && (!isMobileWidth || isIos || !isAndroid)) {
+      const isAdminUrl = window.location.search.includes('admin=true') || window.location.pathname.includes('/admin');
+      const isDesktopDevice = !isMobileWidth && !isAndroid && !isIos && !isNative;
+
+      if (isDesktopDevice && !isAdminUrl) {
         setIsDeviceBlocked(true);
       }
 
@@ -415,6 +435,22 @@ export default function FastPayApp() {
       }
     };
   }, []);
+
+  // 1a. Security Check: Restrict Desktop access for normal users, allow admin role bypass
+  useEffect(() => {
+    if (typeof window !== 'undefined' && user) {
+      const ua = navigator.userAgent || navigator.vendor || window.opera;
+      const isAndroid = /android/i.test(ua);
+      const isIos = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
+      const isMobileWidth = window.innerWidth <= 768;
+      const isNative = window.Capacitor && window.Capacitor.isNativePlatform();
+      const isDesktopDevice = !isMobileWidth && !isAndroid && !isIos && !isNative;
+
+      if (isDesktopDevice && user.role !== 'admin') {
+        setIsDeviceBlocked(true);
+      }
+    }
+  }, [user]);
 
   // 1b. Native platform integration, Push notifications, network & external link handlers
   useEffect(() => {
@@ -867,6 +903,76 @@ export default function FastPayApp() {
     } catch (err) {
       console.error('Error fulfilling grand prize:', err);
       alert('Error fulfilling prize.');
+    }
+  };
+
+  const fetchAdminLotteryData = async (searchVal = '', statusVal = '', weekVal = '') => {
+    setAdminLotteryLoading(true);
+    try {
+      const queryParams = new URLSearchParams();
+      if (searchVal) queryParams.set('search', searchVal);
+      if (statusVal) queryParams.set('status', statusVal);
+      if (weekVal) queryParams.set('week', weekVal);
+
+      const res = await fetch(`/api/admin/lottery?${queryParams.toString()}`);
+      const data = await res.json();
+      if (data.success) {
+        setAdminLotteryConfig(data.activeDraw);
+        setAdminLotteryStats(data.stats);
+        setAdminLotteryTickets(data.tickets);
+        setAdminLotteryWinners(data.winners);
+        setAdminLotteryDraws(data.draws);
+      }
+    } catch (err) {
+      console.error('Error fetching admin lottery details:', err);
+    } finally {
+      setAdminLotteryLoading(false);
+    }
+  };
+
+  const saveAdminLotteryConfig = async (newConfig) => {
+    try {
+      const res = await fetch('/api/admin/lottery', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update_config',
+          ticketPrice: newConfig.ticket_price,
+          multiplier: newConfig.multiplier,
+          salesEnabled: newConfig.status === 'open'
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert('Lottery configuration updated successfully.');
+        fetchAdminLotteryData(adminLotterySearch, adminLotteryStatusFilter, adminLotteryWeekFilter);
+      } else {
+        alert(data.error || 'Failed to update lottery configuration.');
+      }
+    } catch (err) {
+      console.error('Error saving lottery config:', err);
+      alert('Error updating lottery configuration.');
+    }
+  };
+
+  const runManualLotteryDraw = async (winCode = '') => {
+    if (!confirm(winCode ? `Are you sure you want to manually run the draw with winning code #${winCode}?` : 'Are you sure you want to manually execute the weekly draw with a random winning code?')) return;
+    try {
+      const res = await fetch('/api/admin/lottery', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'run_draw', winCode })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(data.message);
+        fetchAdminLotteryData(adminLotterySearch, adminLotteryStatusFilter, adminLotteryWeekFilter);
+      } else {
+        alert(data.error || 'Failed to run draw.');
+      }
+    } catch (err) {
+      console.error('Error running manual draw:', err);
+      alert('Error running manual draw.');
     }
   };
 
@@ -1358,6 +1464,8 @@ export default function FastPayApp() {
         fetchAdminReferralTasks(adminReferralTasksPage, adminReferralTasksSearch);
       } else if (adminActiveSubTab === 'spin-management') {
         fetchAdminSpinData();
+      } else if (adminActiveSubTab === 'lottery-management') {
+        fetchAdminLotteryData(adminLotterySearch, adminLotteryStatusFilter, adminLotteryWeekFilter);
       }
     }
   }, [
@@ -1378,7 +1486,10 @@ export default function FastPayApp() {
     withdrawalEndDate,
     withdrawalSort,
     adminReferralTasksPage,
-    adminReferralTasksSearch
+    adminReferralTasksSearch,
+    adminLotterySearch,
+    adminLotteryStatusFilter,
+    adminLotteryWeekFilter
   ]);
 
   const formatTimerValue = (seconds) => {
@@ -1488,6 +1599,48 @@ export default function FastPayApp() {
       }
     } catch (e) {
       console.error('Error fetching spin details:', e);
+    }
+  };
+
+  const fetchLotteryData = async () => {
+    setLotteryLoading(true);
+    try {
+      const res = await fetch('/api/lottery');
+      const data = await res.json();
+      if (data.success) {
+        setLotteryData(data);
+      }
+    } catch (err) {
+      console.error('Error fetching lottery data:', err);
+    } finally {
+      setLotteryLoading(false);
+    }
+  };
+
+  const buyLotteryTicket = async () => {
+    if (buyLotteryLoading) return;
+    if (!confirm(`Are you sure you want to purchase a lottery ticket for ₹${lotteryData.config.ticketPrice}?`)) return;
+    setBuyLotteryLoading(true);
+    try {
+      const res = await fetch('/api/lottery/ticket', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        alert(data.message);
+        if (data.walletBalance !== undefined && setUser) {
+          setUser(prev => {
+            if (!prev) return prev;
+            return { ...prev, walletBalance: data.walletBalance };
+          });
+        }
+        fetchLotteryData();
+      } else {
+        alert(data.error || 'Failed to purchase lottery ticket.');
+      }
+    } catch (err) {
+      console.error('Error buying lottery ticket:', err);
+      alert('Error buying lottery ticket.');
+    } finally {
+      setBuyLotteryLoading(false);
     }
   };
 
@@ -2281,15 +2434,15 @@ export default function FastPayApp() {
         alignItems: 'center',
         justifyContent: 'center',
         height: '100vh',
-        backgroundColor: '#000000',
+        backgroundColor: '#0a0f1d',
         color: '#ffffff',
         padding: '24px',
         textAlign: 'center',
         fontFamily: 'Outfit, sans-serif'
       }}>
-        <h2 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '16px' }}>⚠️ Device Access Restricted</h2>
-        <p style={{ fontSize: '0.95rem', lineHeight: '1.6', color: '#a0a0a0', maxWidth: '360px' }}>
-          This system is strictly limited to **Android Mobile devices** for security and system integrity protocols. Access via desktop computers, iPhones (iOS), or tablets is blocked.
+        <h2 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '16px', color: '#ff7675' }}>⚠️ Mobile Only Platform</h2>
+        <p style={{ fontSize: '0.95rem', lineHeight: '1.6', color: '#a0a8c0', maxWidth: '360px' }}>
+          This platform is available only on mobile devices. Please use your Android phone to continue.
         </p>
       </div>
     );
@@ -3478,6 +3631,125 @@ export default function FastPayApp() {
                 )}
               </div>
             </>
+          ) : activityView === 'lottery' ? (
+            <>
+              {/* Lottery Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--glass-border)', paddingBottom: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button
+                    onClick={() => setActivityView(null)}
+                    style={{ background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                  >
+                    <ArrowLeft size={20} />
+                  </button>
+                  <h3 style={{ fontSize: '1.2rem', fontWeight: 700 }} className="gradient-text">🎟️ FastPay Weekly Lottery</h3>
+                </div>
+              </div>
+
+              {/* Stats Bar */}
+              <div className="glass-panel" style={{ padding: '16px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', textAlign: 'center' }}>
+                <div>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', display: 'block' }}>Wallet Balance</span>
+                  <strong style={{ fontSize: '1.1rem', color: 'var(--accent-secondary)' }}>₹{user?.walletBalance.toFixed(2)}</strong>
+                </div>
+                <div>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', display: 'block' }}>Ticket Cost</span>
+                  <strong style={{ fontSize: '1.1rem', color: 'var(--text-primary)' }}>₹{lotteryData.config.ticketPrice}</strong>
+                </div>
+                <div>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', display: 'block' }}>Multiplier</span>
+                  <strong style={{ fontSize: '1.1rem', color: 'var(--success)' }}>{lotteryData.config.multiplier}x</strong>
+                </div>
+              </div>
+
+              {/* Purchase Card */}
+              <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px', textAlign: 'center' }}>
+                <span style={{ fontSize: '3rem' }}>🎟️</span>
+                <div>
+                  <h4 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 6px 0', color: 'var(--text-primary)' }}>Get Your Lucky Ticket</h4>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0, lineHeight: '1.4' }}>
+                    Purchase a lottery ticket with a unique 3-digit code. Draw takes place automatically every Sunday.
+                  </p>
+                </div>
+
+                {lotteryData.isSunday ? (
+                  <div style={{ padding: '10px 16px', background: 'rgba(255, 118, 117, 0.1)', color: 'var(--error)', borderRadius: '8px', fontSize: '0.82rem', fontWeight: 600 }}>
+                    Sunday Draw Day: Ticket sales are closed today.
+                  </div>
+                ) : !lotteryData.config.salesEnabled ? (
+                  <div style={{ padding: '10px 16px', background: 'rgba(255, 118, 117, 0.1)', color: 'var(--error)', borderRadius: '8px', fontSize: '0.82rem', fontWeight: 600 }}>
+                    Lottery sales are currently disabled by the administrator.
+                  </div>
+                ) : (
+                  <button
+                    onClick={buyLotteryTicket}
+                    disabled={buyLotteryLoading}
+                    className="gradient-btn"
+                    style={{
+                      padding: '12px 32px',
+                      borderRadius: '12px',
+                      fontSize: '0.95rem',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      boxShadow: '0 4px 15px rgba(0, 206, 201, 0.3)',
+                      opacity: buyLotteryLoading ? 0.6 : 1
+                    }}
+                  >
+                    {buyLotteryLoading ? 'Processing...' : `Buy Ticket (₹${lotteryData.config.ticketPrice})`}
+                  </button>
+                )}
+              </div>
+
+              {/* User Tickets History */}
+              <div>
+                <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '10px' }} className="gradient-text">📜 Your Purchased Tickets</h3>
+                {lotteryLoading ? (
+                  <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-secondary)' }}>Loading history...</div>
+                ) : lotteryData.tickets.length === 0 ? (
+                  <div className="glass-panel" style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+                    No tickets purchased yet.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '300px', overflowY: 'auto' }}>
+                    {lotteryData.tickets.map((ticket) => (
+                      <div key={ticket.id} className="glass-panel" style={{ padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem' }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontSize: '1rem' }}>🎟️</span>
+                            <span style={{ fontSize: '1.1rem', fontWeight: 800, fontFamily: 'monospace', letterSpacing: '1px', color: 'var(--text-primary)' }}>
+                              #{ticket.ticket_code}
+                            </span>
+                          </div>
+                          <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                            Bought: {new Date(ticket.created_at).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div>
+                            {ticket.status === 'active' ? (
+                              <span style={{ fontSize: '0.72rem', color: 'var(--gold)', background: 'rgba(253, 203, 110, 0.1)', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>
+                                Active
+                              </span>
+                            ) : ticket.status === 'won' ? (
+                              <span style={{ fontSize: '0.72rem', color: 'var(--success)', background: 'rgba(0, 184, 148, 0.1)', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>
+                                Won ₹{ticket.prize_amount}
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.05)', padding: '2px 8px', borderRadius: '4px' }}>
+                                Lost
+                              </span>
+                            )}
+                          </div>
+                          <span style={{ display: 'block', fontSize: '0.65rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                            Price: ₹{ticket.price}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
           ) : (
             <>
           {/* User balance cards */}
@@ -3603,7 +3875,8 @@ export default function FastPayApp() {
               {/* Lottery Button */}
               <button
                 onClick={() => {
-                  setShowLotteryModal(true);
+                  setActivityView('lottery');
+                  fetchLotteryData();
                 }}
                 className="interactive-card"
                 style={{
@@ -3939,6 +4212,7 @@ export default function FastPayApp() {
                 { id: 'users', label: 'User Management' },
                 { id: 'referral-tasks', label: 'Referral Reward Tasks' },
                 { id: 'spin-management', label: 'Spin Management' },
+                { id: 'lottery-management', label: 'Lottery Control' },
                 { id: 'transactions', label: 'Transaction Resolving' },
                 { id: 'orders', label: 'Scheme Purchases' },
                 { id: 'schemes', label: 'Investment Schemes' },
@@ -5780,6 +6054,291 @@ export default function FastPayApp() {
             </div>
           )}
 
+          {/* Section: Lottery Control admin panel */}
+          {adminActiveSubTab === 'lottery-management' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)' }}>Lottery Control Board</h3>
+
+              {adminLotteryLoading || !adminLotteryConfig || !adminLotteryStats ? (
+                <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>
+                  Loading lottery configuration and statistics...
+                </div>
+              ) : (
+                <>
+                  {/* Dashboard KPIs */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div className="glass-panel" style={{ padding: '16px', textAlign: 'center' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Total Tickets Sold (Global)</span>
+                      <strong style={{ fontSize: '1.25rem', color: 'var(--text-primary)' }}>{adminLotteryStats.totalSoldTickets} Tickets</strong>
+                    </div>
+                    <div className="glass-panel" style={{ padding: '16px', textAlign: 'center' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Total Revenue (Global)</span>
+                      <strong style={{ fontSize: '1.25rem', color: 'var(--success)' }}>₹{adminLotteryStats.totalRevenue}</strong>
+                    </div>
+                    <div className="glass-panel" style={{ padding: '16px', textAlign: 'center' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Total Prizes Paid (Global)</span>
+                      <strong style={{ fontSize: '1.25rem', color: 'var(--accent-secondary)' }}>₹{adminLotteryStats.totalPrizesPaid}</strong>
+                    </div>
+                    <div className="glass-panel" style={{ padding: '16px', textAlign: 'center' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Total Participants (Global)</span>
+                      <strong style={{ fontSize: '1.25rem', color: 'var(--gold)' }}>{adminLotteryStats.totalParticipantsCount} Users</strong>
+                    </div>
+
+                    <div className="glass-panel" style={{ padding: '16px', textAlign: 'center', gridColumn: 'span 2', background: 'rgba(0, 206, 201, 0.03)', border: '1px solid rgba(0, 206, 201, 0.15)' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>
+                        Active Draw: Week {adminLotteryConfig.week_number}
+                      </span>
+                      <strong style={{ fontSize: '1.25rem', color: adminLotteryConfig.status === 'open' ? 'var(--success)' : adminLotteryConfig.status === 'closed' ? 'var(--error)' : 'var(--gold)' }}>
+                        {adminLotteryConfig.status === 'open' ? '🟢 Open (Sales Active)' : adminLotteryConfig.status === 'closed' ? '🔴 Closed (Sales Suspended)' : '⚪ Draw Completed'}
+                      </strong>
+                      {adminLotteryConfig.winning_code && (
+                        <div style={{ marginTop: '8px', fontSize: '0.82rem', color: 'var(--text-primary)' }}>
+                          Winning Ticket Number: <strong style={{ color: 'var(--gold)', fontSize: '1rem', fontFamily: 'monospace' }}>#{adminLotteryConfig.winning_code}</strong>
+                          {adminLotteryConfig.draw_date && ` drawn on ${new Date(adminLotteryConfig.draw_date).toLocaleDateString()}`}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Config Form */}
+                  <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    <h4 style={{ fontSize: '0.9rem', fontWeight: 700, margin: 0, color: 'var(--accent-secondary)' }}>⚙️ Configuration Parameters</h4>
+                    
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Ticket Price (₹)</label>
+                        <input
+                          type="number"
+                          className="form-input"
+                          value={adminLotteryConfig.ticket_price || 100}
+                          onChange={(e) => setAdminLotteryConfig({ ...adminLotteryConfig, ticket_price: Number(e.target.value) })}
+                          style={{ fontSize: '0.85rem' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Prize Multiplier</label>
+                        <input
+                          type="number"
+                          className="form-input"
+                          value={adminLotteryConfig.multiplier || 2}
+                          onChange={(e) => setAdminLotteryConfig({ ...adminLotteryConfig, multiplier: Number(e.target.value) })}
+                          style={{ fontSize: '0.85rem' }}
+                        />
+                      </div>
+                      <div style={{ gridColumn: 'span 2' }}>
+                        <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Ticket Sales Status</span>
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                          <button
+                            type="button"
+                            onClick={() => setAdminLotteryConfig({ ...adminLotteryConfig, status: 'open' })}
+                            className="interactive-card"
+                            style={{
+                              flex: 1, padding: '8px', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer',
+                              background: adminLotteryConfig.status === 'open' ? 'var(--success)' : 'var(--bg-secondary)',
+                              color: adminLotteryConfig.status === 'open' ? '#000' : 'var(--text-secondary)',
+                              border: '1px solid var(--glass-border)'
+                            }}
+                          >
+                            Open (Sales Active)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setAdminLotteryConfig({ ...adminLotteryConfig, status: 'closed' })}
+                            className="interactive-card"
+                            style={{
+                              flex: 1, padding: '8px', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer',
+                              background: adminLotteryConfig.status === 'closed' ? 'var(--error)' : 'var(--bg-secondary)',
+                              color: adminLotteryConfig.status === 'closed' ? '#fff' : 'var(--text-secondary)',
+                              border: '1px solid var(--glass-border)'
+                            }}
+                          >
+                            Closed (Sales Suspended)
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => saveAdminLotteryConfig(adminLotteryConfig)}
+                      className="gradient-btn"
+                      style={{ padding: '12px', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer', marginTop: '8px' }}
+                    >
+                      Save Configuration Settings
+                    </button>
+                  </div>
+
+                  {/* Weekly Draw Control */}
+                  <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <h4 style={{ fontSize: '0.9rem', fontWeight: 700, margin: 0, color: 'var(--error)' }}>🎲 Weekly Draw Controls</h4>
+                    <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: '1.4', margin: 0 }}>
+                      Perform the draw process for Week {adminLotteryConfig.week_number}. This will pick the winning 3-digit key, credit payouts, log transactions, and trigger notifications.
+                    </p>
+
+                    <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+                      <input
+                        type="text"
+                        maxLength={3}
+                        placeholder="Winning code (e.g. 109) - Leave blank for random"
+                        className="form-input"
+                        id="adminManualWinCode"
+                        style={{ fontSize: '0.8rem', flex: 1 }}
+                      />
+                      <button
+                        onClick={() => {
+                          const input = document.getElementById('adminManualWinCode');
+                          runManualLotteryDraw(input ? input.value : '');
+                        }}
+                        disabled={adminLotteryConfig.status === 'completed'}
+                        className="gradient-btn"
+                        style={{
+                          padding: '0 20px',
+                          borderRadius: '8px',
+                          fontSize: '0.82rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          background: adminLotteryConfig.status === 'completed' ? 'var(--text-secondary)' : 'linear-gradient(135deg, #ff7675 0%, #d63031 100%)',
+                          opacity: adminLotteryConfig.status === 'completed' ? 0.6 : 1
+                        }}
+                      >
+                        {adminLotteryConfig.status === 'completed' ? 'Draw Completed' : '🎲 Run Lottery Draw'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Search and Filters */}
+                  <div className="glass-panel" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <h4 style={{ fontSize: '0.9rem', fontWeight: 700, margin: 0, color: 'var(--accent-secondary)' }}>🔍 Search & Filter Participant List</h4>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <input
+                        type="text"
+                        placeholder="Search Username, User ID, phone, ticket code..."
+                        className="form-input"
+                        value={adminLotterySearch}
+                        onChange={(e) => setAdminLotterySearch(e.target.value)}
+                        style={{ fontSize: '0.8rem', flex: 1 }}
+                      />
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Filter Status</label>
+                        <select
+                          className="form-input"
+                          value={adminLotteryStatusFilter}
+                          onChange={(e) => setAdminLotteryStatusFilter(e.target.value)}
+                          style={{ fontSize: '0.8rem', width: '100%', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+                        >
+                          <option value="">All Statuses</option>
+                          <option value="active">Active Tickets</option>
+                          <option value="won">Winners (Prize Paid)</option>
+                          <option value="lost">Lost</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Filter Week</label>
+                        <select
+                          className="form-input"
+                          value={adminLotteryWeekFilter}
+                          onChange={(e) => setAdminLotteryWeekFilter(e.target.value)}
+                          style={{ fontSize: '0.8rem', width: '100%', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+                        >
+                          <option value="">All Weeks</option>
+                          {adminLotteryStats.uniqueWeeksList ? adminLotteryStats.uniqueWeeksList.map(w => (
+                            <option key={w} value={w.toString()}>Week {w}</option>
+                          )) : (
+                            <option value={adminLotteryConfig.week_number.toString()}>Current (Week {adminLotteryConfig.week_number})</option>
+                          )}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Complete Participant List */}
+                  <div className="glass-panel" style={{ padding: '20px' }}>
+                    <h4 style={{ fontSize: '0.9rem', fontWeight: 700, margin: '0 0 12px 0', color: 'var(--gold)' }}>📋 Complete Participant List ({adminLotteryTickets.length})</h4>
+                    {adminLotteryTickets.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+                        No tickets matching search and filter parameters.
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '350px', overflowY: 'auto' }}>
+                        {adminLotteryTickets.map(ticket => (
+                          <div key={ticket.id} className="interactive-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.01)', padding: '12px', borderRadius: '8px', border: '1px solid var(--glass-border)', fontSize: '0.78rem' }}>
+                            <div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <strong style={{ color: 'var(--text-primary)', fontSize: '0.9rem', fontFamily: 'monospace' }}>#{ticket.ticket_code}</strong>
+                                <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Week {ticket.week_number}</span>
+                              </div>
+                              <span style={{ display: 'block', marginTop: '4px' }}>User: <strong>{ticket.username}</strong></span>
+                              <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>ID: {ticket.user_id_str}</span>
+                              <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Phone: {ticket.phone}</span>
+                              <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--text-secondary)', marginTop: '2px' }}>Bought: {new Date(ticket.created_at).toLocaleString()}</span>
+                            </div>
+                            <div style={{ textAlign: 'right' }}>
+                              <strong style={{ display: 'block', fontSize: '0.85rem' }}>₹{ticket.price}</strong>
+                              <div style={{ marginTop: '6px' }}>
+                                {ticket.status === 'active' ? (
+                                  <span style={{ color: 'var(--gold)', background: 'rgba(253, 203, 110, 0.1)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.68rem', fontWeight: 600 }}>Active</span>
+                                ) : ticket.status === 'won' ? (
+                                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
+                                    <span style={{ color: 'var(--success)', background: 'rgba(0, 184, 148, 0.1)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.68rem', fontWeight: 600 }}>Winner</span>
+                                    <span style={{ color: 'var(--success)', fontSize: '0.7rem', fontWeight: 700 }}>+₹{ticket.prize_amount}</span>
+                                  </div>
+                                ) : (
+                                  <span style={{ color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.05)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.68rem' }}>Lost</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Historical Weekly Draws List */}
+                  <div className="glass-panel" style={{ padding: '20px' }}>
+                    <h4 style={{ fontSize: '0.9rem', fontWeight: 700, margin: '0 0 12px 0', color: 'var(--accent-secondary)' }}>📜 Lottery Weekly History</h4>
+                    {adminLotteryDraws.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+                        No lottery draw history compiled yet.
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '300px', overflowY: 'auto' }}>
+                        {adminLotteryDraws.map(draw => (
+                          <div key={draw.id} className="interactive-card" style={{ display: 'flex', flexDirection: 'column', gap: '6px', background: 'rgba(255,255,255,0.01)', padding: '12px', borderRadius: '8px', border: '1px solid var(--glass-border)', fontSize: '0.78rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <strong style={{ color: 'var(--text-primary)', fontSize: '0.85rem' }}>Week {draw.week_number} ({draw.status.toUpperCase()})</strong>
+                              <button
+                                onClick={() => {
+                                  setAdminLotteryWeekFilter(draw.week_number.toString());
+                                }}
+                                className="gradient-btn"
+                                style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '0.68rem', fontWeight: 600, cursor: 'pointer' }}
+                              >
+                                View Participants
+                              </button>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+                              <div>
+                                <span>Sales Started: {new Date(draw.sales_start_date).toLocaleDateString()}</span>
+                                <span style={{ display: 'block' }}>Sales Ended: {draw.sales_end_date ? new Date(draw.sales_end_date).toLocaleDateString() : 'Active'}</span>
+                                <span style={{ display: 'block' }}>Total Sold: <strong>{draw.total_tickets_sold} Tickets</strong></span>
+                              </div>
+                              <div>
+                                <span>Winning Code: <strong style={{ color: 'var(--gold)' }}>{draw.winning_code ? `#${draw.winning_code}` : 'N/A'}</strong></span>
+                                <span style={{ display: 'block' }}>Total Revenue: <strong>₹{draw.total_revenue}</strong></span>
+                                <span style={{ display: 'block' }}>Total Prizes Paid: <strong style={{ color: 'var(--success)' }}>₹{draw.total_prizes_paid}</strong></span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           {/* Section: Referral Reward Tasks admin panel */}
           {adminActiveSubTab === 'referral-tasks' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -6848,7 +7407,7 @@ export default function FastPayApp() {
                       className="form-input"
                       value={newPaAccountNumber}
                       onChange={(e) => setNewPaAccountNumber(e.target.value)}
-                      placeholder="e.g. 912010087654321 or fastpay@ybl"
+                      placeholder="e.g. 912010087654321 or upi@ybl"
                       style={{ fontSize: '0.8rem', width: '100%' }}
                     />
                   </div>
@@ -6870,7 +7429,7 @@ export default function FastPayApp() {
                       className="form-input"
                       value={newPaUpiId}
                       onChange={(e) => setNewPaUpiId(e.target.value)}
-                      placeholder="e.g. fastpay@paytm"
+                      placeholder="e.g. upi@paytm"
                       style={{ fontSize: '0.8rem', width: '100%' }}
                     />
                   </div>
@@ -7432,46 +7991,56 @@ export default function FastPayApp() {
                 </div>
               )}
 
-              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textAlign: 'center', marginBottom: '5px' }}>
-                Scan UPI QR Code or transfer to Bank Account below:
-              </div>
-
-              {/* QR Code */}
-              {activeOrderBankDetails?.upiId && (
+              {(!activeOrderBankDetails || (!activeOrderBankDetails.upiId && !activeOrderBankDetails.accountNumber)) ? (
+                <div style={{ padding: '16px', background: 'rgba(255, 118, 117, 0.1)', border: '1px solid rgba(255, 118, 117, 0.2)', borderRadius: '10px', textAlign: 'center', color: 'var(--error)', fontSize: '0.85rem' }}>
+                  <strong>No Payment Account Configured:</strong> No payment details are currently set by the administrator. Please contact support to complete your deposit.
+                </div>
+              ) : (
                 <>
-                  <div style={{ background: '#fff', padding: '10px', borderRadius: '12px', width: '200px', height: '200px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <img
-                      src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=${activeOrderBankDetails.upiId}&pn=FastPay&am=${activeOrderDetails.price}&cu=INR`)}`}
-                      alt="Payment QR Code"
-                      style={{ width: '180px', height: '180px' }}
-                    />
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textAlign: 'center', marginBottom: '5px' }}>
+                    Scan UPI QR Code or transfer to Bank Account below:
                   </div>
 
-                  <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textAlign: 'center' }}>
-                    UPI ID: <strong style={{ color: 'var(--text-primary)' }}>{activeOrderBankDetails.upiId}</strong>
-                  </div>
+                  {/* QR Code */}
+                  {activeOrderBankDetails?.upiId && (
+                    <>
+                      <div style={{ background: '#fff', padding: '10px', borderRadius: '12px', width: '200px', height: '200px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <img
+                          src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=${activeOrderBankDetails.upiId}&pn=FastPay&am=${activeOrderDetails.price}&cu=INR`)}`}
+                          alt="Payment QR Code"
+                          style={{ width: '180px', height: '180px' }}
+                        />
+                      </div>
+
+                      <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textAlign: 'center', marginTop: '4px', marginBottom: '8px' }}>
+                        UPI ID: <strong style={{ color: 'var(--text-primary)' }}>{activeOrderBankDetails.upiId}</strong>
+                      </div>
+                    </>
+                  )}
+
+                  {/* Bank details card */}
+                  {activeOrderBankDetails?.accountNumber && (
+                    <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', borderRadius: '12px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.8rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Beneficiary Name:</span>
+                        <strong>{activeOrderBankDetails?.beneficiaryName || 'N/A'}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Bank Name:</span>
+                        <strong>{activeOrderBankDetails?.bankName || 'N/A'}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Account Number:</span>
+                        <strong>{activeOrderBankDetails?.accountNumber || 'N/A'}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>IFSC Code:</span>
+                        <strong>{activeOrderBankDetails?.ifsc || 'N/A'}</strong>
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
-
-              {/* Bank details card */}
-              <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', borderRadius: '12px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.8rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>Beneficiary Name:</span>
-                  <strong>{activeOrderBankDetails?.beneficiaryName || 'N/A'}</strong>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>Bank Name:</span>
-                  <strong>{activeOrderBankDetails?.bankName || 'N/A'}</strong>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>Account Number:</span>
-                  <strong>{activeOrderBankDetails?.accountNumber || 'N/A'}</strong>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>IFSC Code:</span>
-                  <strong>{activeOrderBankDetails?.ifsc || 'N/A'}</strong>
-                </div>
-              </div>
 
               {/* UTR Input field */}
               <div style={{ marginTop: '10px' }}>

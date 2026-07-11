@@ -46,8 +46,10 @@ export async function GET(request, { params }) {
       status: 200,
       headers: {
         'Content-Type': contentType,
-        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Content-Disposition': `attachment; filename="${matchedFile}"`,
         'Content-Length': stat.size.toString(),
+        'X-Content-Type-Options': 'nosniff',
+        'Content-Transfer-Encoding': 'binary',
         'Cache-Control': 'no-cache, no-store, must-revalidate',
       },
     });
