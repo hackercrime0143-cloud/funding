@@ -21,7 +21,8 @@ import {
   ChevronUp,
   TrendingDown,
   CheckSquare,
-  Wallet
+  Wallet,
+  ArrowLeft
 } from 'lucide-react';
 
 function isVersionOutdated(clientVersion, serverVersion) {
@@ -116,6 +117,20 @@ export default function FastPayApp() {
   const [adminReferralTasksPage, setAdminReferralTasksPage] = useState(1);
   const [adminReferralTasksTotalPages, setAdminReferralTasksTotalPages] = useState(1);
   const [adminReferralTasksLoading, setAdminReferralTasksLoading] = useState(false);
+
+  // Admin Spin Management States
+  const [adminSpinConfig, setAdminSpinConfig] = useState(null);
+  const [adminSpinStats, setAdminSpinStats] = useState(null);
+  const [adminSpinLoading, setAdminSpinLoading] = useState(false);
+
+  // Activity & Spin States
+  const [activityView, setActivityView] = useState(null); // null or 'spin'
+  const [spinLoading, setSpinLoading] = useState(false);
+  const [spinData, setSpinData] = useState({ freeSpins: 0, spinsPlayedToday: 0, dailyLimit: 10, spinPrice: 50, history: [] });
+  const [showLotteryModal, setShowLotteryModal] = useState(false);
+  const [spinResultModal, setSpinResultModal] = useState(null); // null or { prize, type, value }
+  const [spinWheelIsSpinning, setSpinWheelIsSpinning] = useState(false);
+  const [spinTargetIndex, setSpinTargetIndex] = useState(null);
 
   // Search, sort, filter, and pagination states
   const [userSearch, setUserSearch] = useState('');
@@ -798,6 +813,63 @@ export default function FastPayApp() {
     }
   };
 
+  const fetchAdminSpinData = async () => {
+    setAdminSpinLoading(true);
+    try {
+      const res = await fetch('/api/admin/spin');
+      const data = await res.json();
+      if (data.success) {
+        setAdminSpinConfig(data.config);
+        setAdminSpinStats(data.stats);
+      }
+    } catch (err) {
+      console.error('Error fetching admin spin config:', err);
+    } finally {
+      setAdminSpinLoading(false);
+    }
+  };
+
+  const saveAdminSpinConfig = async (newConfig) => {
+    try {
+      const res = await fetch('/api/admin/spin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'update_config', config: newConfig })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert('Spin configuration updated successfully.');
+        fetchAdminSpinData();
+      } else {
+        alert(data.error || 'Failed to update spin configuration.');
+      }
+    } catch (err) {
+      console.error('Error saving spin config:', err);
+      alert('Error updating spin configuration.');
+    }
+  };
+
+  const fulfillGrandPrize = async (logId) => {
+    if (!confirm('Are you sure you want to mark this grand prize as fulfilled?')) return;
+    try {
+      const res = await fetch('/api/admin/spin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'fulfill_prize', logId })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert('Grand prize status marked as fulfilled.');
+        fetchAdminSpinData();
+      } else {
+        alert(data.error || 'Failed to fulfill prize.');
+      }
+    } catch (err) {
+      console.error('Error fulfilling grand prize:', err);
+      alert('Error fulfilling prize.');
+    }
+  };
+
   const handleAdminMilestoneAction = async (action, userId, milestone) => {
     const actName = action === 'approve' ? 'Approve' : 'Revoke';
     if (!confirm(`Are you sure you want to ${action} Milestone ${milestone} for this user?`)) return;
@@ -1284,6 +1356,8 @@ export default function FastPayApp() {
         fetchAdminWithdrawals(withdrawalPage, withdrawalFilter, withdrawalSearchQuery, withdrawalDateRange, withdrawalStartDate, withdrawalEndDate, withdrawalSort);
       } else if (adminActiveSubTab === 'referral-tasks') {
         fetchAdminReferralTasks(adminReferralTasksPage, adminReferralTasksSearch);
+      } else if (adminActiveSubTab === 'spin-management') {
+        fetchAdminSpinData();
       }
     }
   }, [
@@ -1403,6 +1477,65 @@ export default function FastPayApp() {
       const data = await res.json();
       if (data.success) setTeamData(data);
     } catch (e) { }
+  };
+
+  const fetchSpinData = async () => {
+    try {
+      const res = await fetch('/api/activity/spin');
+      const data = await res.json();
+      if (data.success) {
+        setSpinData(data);
+      }
+    } catch (e) {
+      console.error('Error fetching spin details:', e);
+    }
+  };
+
+  const startSpin = async () => {
+    if (spinWheelIsSpinning) return;
+    setSpinWheelIsSpinning(true);
+    setSpinTargetIndex(null);
+
+    try {
+      const res = await fetch('/api/activity/spin', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to start spin.');
+        setSpinWheelIsSpinning(false);
+        return;
+      }
+
+      const prizeLabels = ["₹50", "₹100", "₹200", "₹500", "Bonus Spin", "Try Again", "Good Luck", "iPhone 17"];
+      const winIndex = prizeLabels.indexOf(data.prize);
+      if (winIndex === -1) {
+        alert('Invalid prize returned from server.');
+        setSpinWheelIsSpinning(false);
+        return;
+      }
+
+      setSpinTargetIndex(winIndex);
+      
+      window.spinFinishedCallback = () => {
+        setSpinWheelIsSpinning(false);
+        setSpinResultModal({
+          prize: data.prize,
+          rewardType: data.rewardType,
+          rewardValue: data.rewardValue
+        });
+        if (data.walletBalance !== undefined && setUser) {
+          setUser(prev => {
+            if (!prev) return prev;
+            return { ...prev, walletBalance: data.walletBalance };
+          });
+        }
+        fetchSpinData();
+      };
+
+    } catch (err) {
+      console.error('Error starting spin:', err);
+      alert('Error during spin action.');
+      setSpinWheelIsSpinning(false);
+    }
   };
 
   // 3. OTP Code Timer Logic (60s Limit)
@@ -3247,6 +3380,106 @@ export default function FastPayApp() {
       {/* --- TAB 5: ME --- */}
       {activeTab === 'me' && (
         <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {activityView === 'spin' ? (
+            <>
+              {/* Spin Wheel Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--glass-border)', paddingBottom: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button
+                    onClick={() => setActivityView(null)}
+                    style={{ background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                  >
+                    <ArrowLeft size={20} />
+                  </button>
+                  <h3 style={{ fontSize: '1.2rem', fontWeight: 700 }} className="gradient-text">🎡 Lucky Spin Wheel</h3>
+                </div>
+              </div>
+
+              {/* Stats Bar */}
+              <div className="glass-panel" style={{ padding: '16px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', textAlign: 'center' }}>
+                <div>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', display: 'block' }}>Wallet Balance</span>
+                  <strong style={{ fontSize: '1.1rem', color: 'var(--accent-secondary)' }}>₹{user?.walletBalance.toFixed(2)}</strong>
+                </div>
+                <div>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', display: 'block' }}>Free Spins</span>
+                  <strong style={{ fontSize: '1.1rem', color: 'var(--success)' }}>{spinData.freeSpins}</strong>
+                </div>
+                <div>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', display: 'block' }}>Daily Limit</span>
+                  <strong style={{ fontSize: '1.1rem', color: 'var(--text-primary)' }}>{spinData.spinsPlayedToday} / {spinData.dailyLimit}</strong>
+                </div>
+              </div>
+
+              {/* Wheel & Play Area */}
+              <div className="glass-panel" style={{ padding: '24px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
+                <CanvasWheel
+                  spinning={spinWheelIsSpinning}
+                  targetIndex={spinTargetIndex}
+                  onFinished={() => {
+                    if (window.spinFinishedCallback) window.spinFinishedCallback();
+                  }}
+                />
+
+                <div style={{ textAlign: 'center', marginTop: '10px' }}>
+                  {spinData.spinsPlayedToday >= spinData.dailyLimit ? (
+                    <div style={{ color: 'var(--error)', fontSize: '0.85rem', fontWeight: 600 }}>
+                      Daily Spin Limit Reached. Please try again tomorrow.
+                    </div>
+                  ) : (
+                    <button
+                      onClick={startSpin}
+                      disabled={spinWheelIsSpinning}
+                      className="gradient-btn"
+                      style={{
+                        padding: '12px 32px',
+                        borderRadius: '12px',
+                        fontSize: '1rem',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        boxShadow: '0 4px 15px rgba(253, 203, 110, 0.3)',
+                        opacity: spinWheelIsSpinning ? 0.6 : 1
+                      }}
+                    >
+                      {spinWheelIsSpinning ? 'Spinning...' : (spinData.freeSpins > 0 ? 'Spin Free!' : `Buy Spin (₹${spinData.spinPrice})`)}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* User Spin History Log */}
+              <div>
+                <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '10px' }} className="gradient-text">📜 Your Spin History</h3>
+                {spinData.history.length === 0 ? (
+                  <div className="glass-panel" style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+                    No spins played yet.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '250px', overflowY: 'auto' }}>
+                    {spinData.history.map((log) => (
+                      <div key={log.id} className="glass-panel" style={{ padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                        <div>
+                          <strong style={{ color: 'var(--text-primary)' }}>{log.prizeWon}</strong>
+                          <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                            {new Date(log.date).toLocaleString()}
+                          </span>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <span style={{ fontWeight: 600, color: log.walletCredit > 0 ? 'var(--success)' : 'var(--text-secondary)' }}>
+                            {log.walletCredit > 0 ? `+₹${log.walletCredit}` : '—'}
+                          </span>
+                          <span style={{ display: 'block', fontSize: '0.65rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                            {log.isFreeSpin ? 'Free' : `Cost: ₹${log.amountPaid}`}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
           {/* User balance cards */}
           <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', alignItems: 'center' }}>
@@ -3325,22 +3558,83 @@ export default function FastPayApp() {
             </div>
           </div>
 
-          {/* Support ID Card */}
-          {user?.supportId && (
-            <div className="glass-panel" style={{ padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0, 0, 0, 0.03)', border: '1px solid var(--glass-border)' }}>
-              <div>
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>🎫 Your Support ID</span>
-                <span style={{ fontSize: '1.4rem', fontWeight: 800, letterSpacing: '4px', color: 'var(--text-primary)', fontFamily: 'monospace' }}>{user.supportId}</span>
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Share this ID when contacting support</div>
-              </div>
+          {/* Activity Section */}
+          <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px', background: 'rgba(0, 0, 0, 0.03)', border: '1px solid var(--glass-border)' }}>
+            <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }} className="gradient-text">
+              🎮 Activity
+            </h3>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              {/* Spin Button */}
               <button
-                onClick={() => copyToClipboard(user.supportId)}
-                style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', color: 'var(--text-primary)', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}
+                onClick={() => {
+                  setActivityView('spin');
+                  fetchSpinData();
+                }}
+                className="interactive-card"
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '16px 8px',
+                  borderRadius: '12px',
+                  background: 'var(--bg-secondary)',
+                  border: '1px solid var(--glass-border)',
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                  fontSize: '0.85rem',
+                  transition: 'transform 0.2s ease, border-color 0.2s ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-2px)';
+                  e.currentTarget.style.borderColor = 'var(--accent-secondary)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.borderColor = 'var(--glass-border)';
+                }}
               >
-                Copy
+                <span style={{ fontSize: '1.8rem' }}>🎡</span>
+                <span>Spin Wheel</span>
+              </button>
+
+              {/* Lottery Button */}
+              <button
+                onClick={() => {
+                  setShowLotteryModal(true);
+                }}
+                className="interactive-card"
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '16px 8px',
+                  borderRadius: '12px',
+                  background: 'var(--bg-secondary)',
+                  border: '1px solid var(--glass-border)',
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                  fontSize: '0.85rem',
+                  transition: 'transform 0.2s ease, border-color 0.2s ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-2px)';
+                  e.currentTarget.style.borderColor = 'var(--accent-secondary)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.borderColor = 'var(--glass-border)';
+                }}
+              >
+                <span style={{ fontSize: '1.8rem' }}>🎟️</span>
+                <span>Lottery</span>
               </button>
             </div>
-          )}
+          </div>
 
           {/* Your Investment Schemes */}
           <div>
@@ -3602,6 +3896,8 @@ export default function FastPayApp() {
               </span>
             </div>
           )}
+            </>
+          )}
         </div>
       )}
 
@@ -3642,6 +3938,7 @@ export default function FastPayApp() {
                 { id: 'overview', label: 'Platform Overview' },
                 { id: 'users', label: 'User Management' },
                 { id: 'referral-tasks', label: 'Referral Reward Tasks' },
+                { id: 'spin-management', label: 'Spin Management' },
                 { id: 'transactions', label: 'Transaction Resolving' },
                 { id: 'orders', label: 'Scheme Purchases' },
                 { id: 'schemes', label: 'Investment Schemes' },
@@ -5256,6 +5553,230 @@ export default function FastPayApp() {
                   </div>
                 );
               })()}
+            </div>
+          )}
+
+          {/* Section: Spin Management admin panel */}
+          {adminActiveSubTab === 'spin-management' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)' }}>Spin Wheel Management</h3>
+
+              {adminSpinLoading || !adminSpinConfig || !adminSpinStats ? (
+                <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>
+                  Loading spin configurations and stats...
+                </div>
+              ) : (
+                <>
+                  {/* Dashboard KPIs */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div className="glass-panel" style={{ padding: '16px', textAlign: 'center' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Total Spins Purchased</span>
+                      <strong style={{ fontSize: '1.25rem', color: 'var(--text-primary)' }}>{adminSpinStats.totalSpinsPurchased} Spins</strong>
+                    </div>
+                    <div className="glass-panel" style={{ padding: '16px', textAlign: 'center' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Today's Revenue</span>
+                      <strong style={{ fontSize: '1.25rem', color: 'var(--success)' }}>₹{adminSpinStats.todayRevenue}</strong>
+                    </div>
+                    <div className="glass-panel" style={{ padding: '16px', textAlign: 'center' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Today's Rewards Paid</span>
+                      <strong style={{ fontSize: '1.25rem', color: 'var(--accent-secondary)' }}>₹{adminSpinStats.todayRewardsPaid}</strong>
+                    </div>
+                    <div className="glass-panel" style={{ padding: '16px', textAlign: 'center' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Remaining Reward Budget</span>
+                      <strong style={{ fontSize: '1.25rem', color: adminSpinStats.remainingRewardBudget <= 0 ? 'var(--error)' : 'var(--success)' }}>
+                        ₹{adminSpinStats.remainingRewardBudget}
+                      </strong>
+                    </div>
+                    <div className="glass-panel" style={{ padding: '16px', textAlign: 'center', gridColumn: 'span 2' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Active Users Spun Today</span>
+                      <strong style={{ fontSize: '1.25rem', color: 'var(--text-primary)' }}>{adminSpinStats.activeUsersToday} Users</strong>
+                    </div>
+                  </div>
+
+                  {/* Config Form */}
+                  <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    <h4 style={{ fontSize: '0.9rem', fontWeight: 700, margin: 0, color: 'var(--accent-secondary)' }}>⚙️ Configuration Parameters</h4>
+                    
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Spin Price (₹)</label>
+                        <input
+                          type="number"
+                          className="form-input"
+                          value={adminSpinConfig.price}
+                          onChange={(e) => setAdminSpinConfig({ ...adminSpinConfig, price: Number(e.target.value) })}
+                          style={{ fontSize: '0.85rem' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Daily Limit per User</label>
+                        <input
+                          type="number"
+                          className="form-input"
+                          value={adminSpinConfig.daily_limit}
+                          onChange={(e) => setAdminSpinConfig({ ...adminSpinConfig, daily_limit: Number(e.target.value) })}
+                          style={{ fontSize: '0.85rem' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Daily Reward Budget (₹)</label>
+                        <input
+                          type="number"
+                          className="form-input"
+                          value={adminSpinConfig.daily_budget}
+                          onChange={(e) => setAdminSpinConfig({ ...adminSpinConfig, daily_budget: Number(e.target.value) })}
+                          style={{ fontSize: '0.85rem' }}
+                        />
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Grand Prize (iPhone 17)</span>
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                          <button
+                            type="button"
+                            onClick={() => setAdminSpinConfig({ ...adminSpinConfig, iphone_enabled: true })}
+                            className="interactive-card"
+                            style={{
+                              flex: 1, padding: '6px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer',
+                              background: adminSpinConfig.iphone_enabled ? 'var(--success)' : 'var(--bg-secondary)',
+                              color: adminSpinConfig.iphone_enabled ? '#000' : 'var(--text-secondary)',
+                              border: '1px solid var(--glass-border)'
+                            }}
+                          >
+                            Enabled
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setAdminSpinConfig({ ...adminSpinConfig, iphone_enabled: false })}
+                            className="interactive-card"
+                            style={{
+                              flex: 1, padding: '6px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer',
+                              background: !adminSpinConfig.iphone_enabled ? 'var(--error)' : 'var(--bg-secondary)',
+                              color: !adminSpinConfig.iphone_enabled ? '#fff' : 'var(--text-secondary)',
+                              border: '1px solid var(--glass-border)'
+                            }}
+                          >
+                            Disabled
+                          </button>
+                        </div>
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Event Start Date</label>
+                        <input
+                          type="date"
+                          className="form-input"
+                          value={adminSpinConfig.start_date ? adminSpinConfig.start_date.substring(0, 10) : ''}
+                          onChange={(e) => setAdminSpinConfig({ ...adminSpinConfig, start_date: e.target.value })}
+                          style={{ fontSize: '0.85rem' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Event End Date</label>
+                        <input
+                          type="date"
+                          className="form-input"
+                          value={adminSpinConfig.end_date ? adminSpinConfig.end_date.substring(0, 10) : ''}
+                          onChange={(e) => setAdminSpinConfig({ ...adminSpinConfig, end_date: e.target.value })}
+                          style={{ fontSize: '0.85rem' }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Reward Probability Weights table */}
+                  <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <h4 style={{ fontSize: '0.9rem', fontWeight: 700, margin: 0, color: 'var(--accent-secondary)' }}>📊 Reward Probabilities & Enablers</h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {Object.entries(adminSpinConfig.rewards || {}).map(([key, item]) => (
+                        <div key={key} className="interactive-card" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '10px', alignItems: 'center', background: 'rgba(255,255,255,0.01)', padding: '10px', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
+                          <div>
+                            <strong style={{ fontSize: '0.85rem', color: 'var(--text-primary)' }}>{item.label}</strong>
+                            <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', display: 'block' }}>Type: {item.type}</span>
+                          </div>
+                          <div>
+                            <input
+                              type="number"
+                              className="form-input"
+                              placeholder="Weight"
+                              value={item.weight}
+                              onChange={(e) => {
+                                const val = Number(e.target.value);
+                                const updatedRewards = { ...adminSpinConfig.rewards };
+                                updatedRewards[key].weight = val;
+                                setAdminSpinConfig({ ...adminSpinConfig, rewards: updatedRewards });
+                              }}
+                              style={{ fontSize: '0.8rem', padding: '4px 8px' }}
+                            />
+                          </div>
+                          <div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const updatedRewards = { ...adminSpinConfig.rewards };
+                                updatedRewards[key].enabled = !item.enabled;
+                                setAdminSpinConfig({ ...adminSpinConfig, rewards: updatedRewards });
+                              }}
+                              className="gradient-btn"
+                              style={{
+                                padding: '6px', fontSize: '0.72rem', borderRadius: '4px', width: '100%',
+                                background: item.enabled ? 'linear-gradient(135deg, #00b894 0%, #00cec9 100%)' : 'linear-gradient(135deg, #ff7675 0%, #d63031 100%)'
+                              }}
+                            >
+                              {item.enabled ? 'ON' : 'OFF'}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    
+                    <button
+                      onClick={() => saveAdminSpinConfig(adminSpinConfig)}
+                      className="gradient-btn"
+                      style={{ padding: '12px', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer', marginTop: '8px' }}
+                    >
+                      Save Settings & Probabilities
+                    </button>
+                  </div>
+
+                  {/* Grand Prize fulfillment section */}
+                  <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <h4 style={{ fontSize: '0.9rem', fontWeight: 700, margin: 0, color: 'var(--accent-secondary)' }}>🏆 Grand Prize (iPhone 17) Winners</h4>
+                    {adminSpinStats.prizeWinners.length === 0 ? (
+                      <div style={{ padding: '10px 0', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+                        No grand prize wins recorded yet.
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {adminSpinStats.prizeWinners.map((winner) => (
+                          <div key={winner.id} className="interactive-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.01)', padding: '12px', borderRadius: '8px', border: '1px solid var(--glass-border)', fontSize: '0.8rem' }}>
+                            <div>
+                              <strong style={{ color: 'var(--text-primary)' }}>{winner.username}</strong>
+                              <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Phone: {winner.phone}</span>
+                              <span style={{ display: 'block', fontSize: '0.65rem', color: 'var(--text-secondary)', marginTop: '2px' }}>Won: {new Date(winner.date).toLocaleString()}</span>
+                            </div>
+                            <div>
+                              {winner.status === 'fulfilled' ? (
+                                <span style={{
+                                  fontSize: '0.75rem', color: 'var(--success)', background: 'rgba(0, 184, 148, 0.1)', padding: '4px 10px', borderRadius: '4px', fontWeight: 700
+                                }}>
+                                  Fulfilled
+                                </span>
+                              ) : (
+                                <button
+                                  onClick={() => fulfillGrandPrize(winner.id)}
+                                  className="gradient-btn"
+                                  style={{ padding: '6px 12px', borderRadius: '4px', fontSize: '0.72rem', fontWeight: 700 }}
+                                >
+                                  Mark Fulfilled
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -7303,6 +7824,70 @@ export default function FastPayApp() {
         </div>
       )}
 
+      {/* --- MODAL: SPIN RESULT POPUP --- */}
+      {spinResultModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div className="glass-panel animate-fade-in" style={{ width: '100%', maxWidth: '360px', padding: '30px 24px', textAlign: 'center', border: '1px solid var(--accent-secondary)' }}>
+            <span style={{ fontSize: '3.5rem', display: 'block', marginBottom: '10px' }}>
+              {spinResultModal.rewardType === 'cash' ? '🎉' : spinResultModal.rewardType === 'bonus' ? '🎫' : spinResultModal.rewardType === 'grand_prize' ? '📱' : '🍀'}
+            </span>
+            <h3 style={{ fontSize: '1.4rem', fontWeight: 800, marginBottom: '8px' }} className="gradient-text">
+              {spinResultModal.rewardType === 'cash' ? 'You Won Cash!' : spinResultModal.rewardType === 'bonus' ? 'Free Spin Awarded!' : spinResultModal.rewardType === 'grand_prize' ? 'Grand Prize Winner!' : 'Good Try!'}
+            </h3>
+            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '20px', lineHeight: '1.4' }}>
+              {spinResultModal.rewardType === 'cash' ? (
+                <>Congratulations! <strong>{spinResultModal.prize}</strong> has been credited to your wallet balance instantly.</>
+              ) : spinResultModal.rewardType === 'bonus' ? (
+                <>Nice! You won an additional free spin. Use it right away!</>
+              ) : spinResultModal.rewardType === 'grand_prize' ? (
+                <>Incredible! You won the grand prize: <strong>{spinResultModal.prize}</strong>. Admin has been notified for fulfillment details.</>
+              ) : (
+                <>No reward this time: <strong>{spinResultModal.prize}</strong>. Better luck next time!</>
+              )}
+            </p>
+            <button
+              className="gradient-btn"
+              onClick={() => setSpinResultModal(null)}
+              style={{ width: '100%', padding: '10px', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 600 }}
+            >
+              Collect & Continue
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL: LOTTERY COMING SOON POPUP --- */}
+      {showLotteryModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div className="glass-panel animate-fade-in" style={{ width: '100%', maxWidth: '360px', padding: '30px 24px', textAlign: 'center' }}>
+            <span style={{ fontSize: '3rem', display: 'block', marginBottom: '10px' }}>🎟️</span>
+            <h3 style={{ fontSize: '1.3rem', fontWeight: 800, marginBottom: '8px' }} className="gradient-text">FastPay Lottery</h3>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '20px', lineHeight: '1.5' }}>
+              Our premium lottery ticket and draws feature is currently under construction. Standby for massive prizes, gadget giveaways, and multipliers.
+            </p>
+            <div style={{
+              background: 'rgba(253, 203, 110, 0.1)',
+              color: 'var(--gold)',
+              padding: '6px 12px',
+              borderRadius: '6px',
+              fontSize: '0.78rem',
+              fontWeight: 700,
+              display: 'inline-block',
+              marginBottom: '20px'
+            }}>
+              Coming Soon
+            </div>
+            <button
+              className="gradient-btn"
+              onClick={() => setShowLotteryModal(false)}
+              style={{ width: '100%', padding: '10px', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 600 }}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* --- MODAL: PROFIT BREAKDOWN DETAIL POPUP --- */}
       {(showProfitDetailsPage || showMeProfitDetailsPage) && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
@@ -7918,3 +8503,106 @@ export default function FastPayApp() {
     </div>
   );
 }
+
+const CanvasWheel = ({ spinning, targetIndex, onFinished }) => {
+  const canvasRef = useRef(null);
+  const prizeLabels = ["₹50", "₹100", "₹200", "₹500", "Bonus Spin", "Try Again", "Good Luck", "iPhone 17"];
+  const colors = ["#e74c3c", "#3498db", "#2ecc71", "#f1c40f", "#9b59b6", "#1abc9c", "#e67e22", "#fdcb6e"];
+  const currentRotation = useRef(0);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width;
+    const height = canvas.height;
+    const radius = width / 2 - 10;
+
+    const draw = (angle) => {
+      ctx.clearRect(0, 0, width, height);
+      ctx.save();
+      ctx.translate(width / 2, height / 2);
+      ctx.rotate(angle);
+
+      // Draw segments
+      const slice = (2 * Math.PI) / 8;
+      for (let i = 0; i < 8; i++) {
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.arc(0, 0, radius, i * slice, (i + 1) * slice);
+        ctx.closePath();
+        ctx.fillStyle = colors[i];
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+        ctx.stroke();
+
+        // Draw Text
+        ctx.save();
+        ctx.rotate(i * slice + slice / 2);
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.fillText(prizeLabels[i], radius - 15, 4);
+        ctx.restore();
+      }
+
+      // Draw center circle decoration
+      ctx.beginPath();
+      ctx.arc(0, 0, 18, 0, 2 * Math.PI);
+      ctx.fillStyle = '#2c3e50';
+      ctx.fill();
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      ctx.restore();
+    };
+
+    if (spinning && targetIndex !== null) {
+      let start = null;
+      const slice = (2 * Math.PI) / 8;
+      const targetAngle = (1.5 * Math.PI) - (targetIndex * slice) - (slice / 2);
+      const totalSpin = currentRotation.current + (10 * Math.PI) + targetAngle - (currentRotation.current % (2 * Math.PI));
+      const duration = 4000; // 4 seconds
+
+      const animate = (timestamp) => {
+        if (!start) start = timestamp;
+        const progress = Math.min(1, (timestamp - start) / duration);
+        const ease = 1 - Math.pow(1 - progress, 3);
+        const currentAngle = currentRotation.current + ease * (totalSpin - currentRotation.current);
+        
+        draw(currentAngle);
+
+        if (progress < 1) {
+          requestAnimationFrame(animate);
+        } else {
+          currentRotation.current = currentAngle % (2 * Math.PI);
+          onFinished();
+        }
+      };
+
+      requestAnimationFrame(animate);
+    } else {
+      draw(currentRotation.current);
+    }
+  }, [spinning, targetIndex]);
+
+  return (
+    <div style={{ position: 'relative', width: '280px', height: '280px', margin: 'auto' }}>
+      <canvas ref={canvasRef} width="280" height="280" style={{ display: 'block', borderRadius: '50%', boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }} />
+      <div style={{
+        position: 'absolute',
+        top: '-10px',
+        left: 'calc(50% - 12px)',
+        width: 0,
+        height: 0,
+        borderLeft: '12px solid transparent',
+        borderRight: '12px solid transparent',
+        borderTop: '20px solid var(--accent-secondary)',
+        filter: 'drop-shadow(0 2px 5px rgba(0,0,0,0.5))',
+        zIndex: 5
+      }}></div>
+    </div>
+  );
+};
