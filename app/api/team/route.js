@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
-import { User, Transaction } from '@/lib/models';
+import { User, Transaction, Order, checkAndAwardReferralMilestones } from '@/lib/models';
 import { getSessionFromCookies } from '@/lib/auth';
 import mongoose from 'mongoose';
 
@@ -41,6 +41,18 @@ export async function GET(request) {
 
     const currentUser = await User.findById(session.id);
 
+    // Make sure referrer's milestones are checked/awarded
+    await checkAndAwardReferralMilestones(session.id);
+    const updatedUser = await User.findById(session.id);
+
+    // Re-query completed tasks for response
+    const levelAIds = levelA.map(u => u._id);
+    const usersWithApprovedOrders = await Order.distinct('user_id', {
+      user_id: { $in: levelAIds },
+      status: { $in: ['active', 'completed', 'expired_pending_match'] }
+    });
+    const completedReferralTasks = usersWithApprovedOrders.length;
+
     return NextResponse.json({
       success: true,
       referralCode: currentUser ? currentUser.referral_code : '',
@@ -49,6 +61,10 @@ export async function GET(request) {
         levelBCount: levelB.length,
         totalTeam: levelA.length + levelB.length,
         totalCommissions
+      },
+      referralTasks: {
+        completedCount: completedReferralTasks,
+        claimedMilestones: updatedUser ? (updatedUser.referral_milestones_claimed || []) : []
       },
       levelA: levelA.map(u => ({ username: u.username, phone: u.phone.slice(0, 3) + '****' + u.phone.slice(-3), joinedAt: u.created_at })),
       levelB: levelB.map(u => ({ username: u.username, phone: u.phone.slice(0, 3) + '****' + u.phone.slice(-3), joinedAt: u.created_at }))

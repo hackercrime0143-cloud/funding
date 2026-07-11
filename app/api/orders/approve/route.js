@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
-import { User, Order, Transaction, Scheme, VirtualAccount } from '@/lib/models';
+import { User, Order, Transaction, Scheme, VirtualAccount, checkAndAwardReferralMilestones } from '@/lib/models';
 import { getSessionFromCookies } from '@/lib/auth';
 
 export async function POST(request) {
@@ -178,6 +178,9 @@ export async function POST(request) {
           }
         }
       }
+      
+      // Trigger check and award referral milestones for Level A referrer
+      await checkAndAwardReferralMilestones(buyer.referred_by_id);
     }
 
     // Crowdfunding Payout Matching Rule:

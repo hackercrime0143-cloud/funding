@@ -5,6 +5,10 @@ export async function GET(request, { params }) {
   try {
     const { filename } = params;
 
+    // Parse query params to support mirror downloads
+    const url = new URL(request.url);
+    const isMirror = url.searchParams.get('mirror') === 'true';
+
     // Security: Only allow downloading files ending with .apk to prevent directory traversal
     if (!filename.endsWith('.apk')) {
       return new Response('Access denied. Only APK files can be downloaded from this route.', {
@@ -36,10 +40,12 @@ export async function GET(request, { params }) {
     const fileBuffer = fs.readFileSync(filePath);
     const stat = fs.statSync(filePath);
 
+    const contentType = isMirror ? 'application/octet-stream' : 'application/vnd.android.package-archive';
+
     return new Response(fileBuffer, {
       status: 200,
       headers: {
-        'Content-Type': 'application/vnd.android.package-archive',
+        'Content-Type': contentType,
         'Content-Disposition': `attachment; filename="${filename}"`,
         'Content-Length': stat.size.toString(),
         'Cache-Control': 'no-cache, no-store, must-revalidate',

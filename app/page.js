@@ -38,6 +38,18 @@ function isVersionOutdated(clientVersion, serverVersion) {
   return false;
 }
 
+function getCleanApkUrl(urlStr) {
+  if (!urlStr) return '';
+  try {
+    const base = typeof window !== 'undefined' ? window.location.origin : 'http://localhost';
+    const u = new URL(urlStr, base);
+    u.search = '';
+    return typeof window !== 'undefined' ? window.location.origin + u.pathname : u.pathname;
+  } catch (e) {
+    return urlStr;
+  }
+}
+
 export default function FastPayApp() {
   // App views: 'loading', 'auth', 'app'
   const [appState, setAppState] = useState('loading');
@@ -96,6 +108,14 @@ export default function FastPayApp() {
   const [apkDownloadUrl, setApkDownloadUrl] = useState('');
   const [newApkDownloadUrl, setNewApkDownloadUrl] = useState('');
   const [apkUploadLoading, setApkUploadLoading] = useState(false);
+  const [showDownloadHelp, setShowDownloadHelp] = useState(false);
+
+  // Admin Referral Tasks States
+  const [adminReferralTasksData, setAdminReferralTasksData] = useState([]);
+  const [adminReferralTasksSearch, setAdminReferralTasksSearch] = useState('');
+  const [adminReferralTasksPage, setAdminReferralTasksPage] = useState(1);
+  const [adminReferralTasksTotalPages, setAdminReferralTasksTotalPages] = useState(1);
+  const [adminReferralTasksLoading, setAdminReferralTasksLoading] = useState(false);
 
   // Search, sort, filter, and pagination states
   const [userSearch, setUserSearch] = useState('');
@@ -312,7 +332,7 @@ export default function FastPayApp() {
   const [passwordChangeMessage, setPasswordChangeMessage] = useState({ type: '', text: '' });
 
   // Team states
-  const [teamData, setTeamData] = useState({ stats: { levelACount: 0, levelBCount: 0, totalTeam: 0, totalCommissions: 0 }, levelA: [], levelB: [], referralCode: '' });
+  const [teamData, setTeamData] = useState({ stats: { levelACount: 0, levelBCount: 0, totalTeam: 0, totalCommissions: 0 }, levelA: [], levelB: [], referralCode: '', referralTasks: { completedCount: 0, claimedMilestones: [] } });
 
   // Timers references
   const otpIntervalRef = useRef(null);
@@ -490,8 +510,16 @@ export default function FastPayApp() {
       const params = new URLSearchParams(window.location.search);
       const refParam = params.get('ref');
       if (refParam) {
+        localStorage.setItem('fp_ref', refParam);
+        sessionStorage.setItem('fp_ref', refParam);
+        document.cookie = `fp_ref=${refParam}; path=/; max-age=2592000; SameSite=Lax`;
         setReferralCode(refParam);
         setIsLogin(false); // Show registration form
+      } else {
+        const savedRef = localStorage.getItem('fp_ref') || sessionStorage.getItem('fp_ref');
+        if (savedRef) {
+          setReferralCode(savedRef);
+        }
       }
     }
   }, []);
@@ -637,6 +665,11 @@ export default function FastPayApp() {
       const res = await fetch('/api/auth/me');
       const data = await res.json();
       
+      if (data.apkDownloadUrl) {
+        setApkDownloadUrl(data.apkDownloadUrl);
+        setNewApkDownloadUrl(data.apkDownloadUrl);
+      }
+      
       // Perform Force Update Check on ALL responses (200, 401, 403, etc.)
       if (data.pwaSettings?.version) {
         const sv = data.pwaSettings.version;
@@ -741,6 +774,49 @@ export default function FastPayApp() {
       }
     } catch (e) {
       console.error('Error fetching admin stats:', e);
+    }
+  };
+
+  const fetchAdminReferralTasks = async (p = 1, searchVal = '') => {
+    setAdminReferralTasksLoading(true);
+    try {
+      const queryParams = new URLSearchParams();
+      queryParams.set('page', p.toString());
+      queryParams.set('limit', '20');
+      if (searchVal) queryParams.set('search', searchVal);
+      const res = await fetch(`/api/admin/referral-tasks?${queryParams.toString()}`);
+      const data = await res.json();
+      if (data.success) {
+        setAdminReferralTasksData(data.stats);
+        setAdminReferralTasksPage(data.pagination.page);
+        setAdminReferralTasksTotalPages(data.pagination.pages);
+      }
+    } catch (err) {
+      console.error('Error fetching admin referral tasks:', err);
+    } finally {
+      setAdminReferralTasksLoading(false);
+    }
+  };
+
+  const handleAdminMilestoneAction = async (action, userId, milestone) => {
+    const actName = action === 'approve' ? 'Approve' : 'Revoke';
+    if (!confirm(`Are you sure you want to ${action} Milestone ${milestone} for this user?`)) return;
+    try {
+      const res = await fetch('/api/admin/referral-tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, userId, milestone })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(data.message);
+        fetchAdminReferralTasks(adminReferralTasksPage, adminReferralTasksSearch);
+      } else {
+        alert(data.error || `Failed to ${action} milestone.`);
+      }
+    } catch (err) {
+      console.error(`Error on admin milestone action ${action}:`, err);
+      alert(`Error during milestone ${action}.`);
     }
   };
 
@@ -1206,6 +1282,8 @@ export default function FastPayApp() {
         fetchAdminOrders(ordersPage, adminOrderFilter, adminSearchQuery);
       } else if (adminActiveSubTab === 'withdrawals') {
         fetchAdminWithdrawals(withdrawalPage, withdrawalFilter, withdrawalSearchQuery, withdrawalDateRange, withdrawalStartDate, withdrawalEndDate, withdrawalSort);
+      } else if (adminActiveSubTab === 'referral-tasks') {
+        fetchAdminReferralTasks(adminReferralTasksPage, adminReferralTasksSearch);
       }
     }
   }, [
@@ -1224,7 +1302,9 @@ export default function FastPayApp() {
     withdrawalDateRange,
     withdrawalStartDate,
     withdrawalEndDate,
-    withdrawalSort
+    withdrawalSort,
+    adminReferralTasksPage,
+    adminReferralTasksSearch
   ]);
 
   const formatTimerValue = (seconds) => {
@@ -1972,7 +2052,9 @@ export default function FastPayApp() {
           tx.type === 'withdrawal' ? 'Withdrawal Request' :
             tx.type === 'scheme_payout' ? 'Daily Return Payout' :
               tx.type === 'principal_return' ? 'Investment Principal Returned' :
-                tx.type.replace(/_/g, ' '),
+                tx.type.startsWith('referral_reward_milestone_') ? 
+                  (tx.type.endsWith('_revoked') ? `Referral Reward Milestone ${tx.type.split('_')[3]} Revoked` : `Referral Reward Milestone ${tx.type.split('_')[3]}`) :
+                  tx.type.replace(/_/g, ' '),
         amount: tx.amount,
         status: tx.status,
         date: new Date(tx.created_at),
@@ -2027,7 +2109,7 @@ export default function FastPayApp() {
                   const targetVer = serverAppVersion || pwaVersion || '1.0.0';
                   localStorage.setItem('fp_app_version', targetVer);
                   const { Browser } = await import('@capacitor/browser');
-                  await Browser.open({ url: apkDownloadUrl });
+                  await Browser.open({ url: getCleanApkUrl(apkDownloadUrl) });
                   return;
                 } catch (err) {
                   console.error('Failed to open native browser for APK download:', err);
@@ -2317,9 +2399,9 @@ export default function FastPayApp() {
 
         {/* Download App Button on Login (visible only on web) */}
         {apkDownloadUrl && typeof window !== 'undefined' && !(window.Capacitor && window.Capacitor.isNativePlatform()) && (
-          <div style={{ marginTop: '20px', textAlign: 'center' }}>
+          <div style={{ marginTop: '20px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
             <a
-              href={apkDownloadUrl}
+              href={getCleanApkUrl(apkDownloadUrl)}
               className="gradient-btn interactive-card"
               style={{
                 display: 'inline-flex',
@@ -2339,6 +2421,20 @@ export default function FastPayApp() {
             >
               📱 Download Android App
             </a>
+            <span
+              onClick={() => setShowDownloadHelp(true)}
+              style={{
+                fontSize: '0.78rem',
+                color: 'var(--text-secondary)',
+                cursor: 'pointer',
+                textDecoration: 'underline',
+                transition: 'color 0.2s'
+              }}
+              onMouseEnter={(e) => e.target.style.color = 'var(--accent-secondary)'}
+              onMouseLeave={(e) => e.target.style.color = 'var(--text-secondary)'}
+            >
+              Problems downloading? View Guide & Mirror
+            </span>
           </div>
         )}
       </div>
@@ -2749,7 +2845,7 @@ export default function FastPayApp() {
               Referral Commission History
             </h3>
             {(() => {
-              const referralCommissions = txHistory.filter(t => t.status === 'completed' && ['referral_commission_l1', 'referral_commission_l2'].includes(t.type));
+              const referralCommissions = txHistory.filter(t => t.status === 'completed' && ['referral_commission_l1', 'referral_commission_l2', 'referral_reward_milestone_1', 'referral_reward_milestone_2', 'referral_reward_milestone_3', 'referral_reward_milestone_1_revoked', 'referral_reward_milestone_2_revoked', 'referral_reward_milestone_3_revoked'].includes(t.type));
               if (referralCommissions.length === 0) {
                 return (
                   <div className="glass-panel" style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
@@ -2766,28 +2862,35 @@ export default function FastPayApp() {
                       if (s.length <= 4) return s;
                       return s.substring(0, 2) + '*'.repeat(s.length - 4) + s.substring(s.length - 2);
                     };
+                    const isMilestone = comm.type.startsWith('referral_reward_milestone_');
+                    const isRevoked = comm.type.endsWith('_revoked');
+                    const milestoneNum = isMilestone ? comm.type.split('_')[3] : '';
                     return (
                       <div key={comm.id} className="glass-panel" style={{ padding: '12px 16px', fontSize: '0.85rem' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <div>
-                            <div style={{ fontWeight: 600 }}>{comm.referred_user_username || 'Direct Downline'} ({formatPhone(comm.referred_user_phone)})</div>
+                            <div style={{ fontWeight: 600 }}>
+                              {isMilestone ? (isRevoked ? `Referral Reward Milestone ${milestoneNum} Revoked` : `Referral Reward Milestone ${milestoneNum}`) : `${comm.referred_user_username || 'Direct Downline'} (${formatPhone(comm.referred_user_phone)})`}
+                            </div>
                             <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                              Scheme: <strong>{comm.scheme_name || 'Quick Deposit Scheme'}</strong>
+                              {isMilestone ? (isRevoked ? 'Milestone Bonus Revoked by Admin' : 'Milestone Bonus Claimed') : <>Scheme: <strong>{comm.scheme_name || 'Quick Deposit Scheme'}</strong></>}
                             </div>
                           </div>
                           <div style={{ textAlign: 'right' }}>
-                            <div style={{ fontWeight: 700, color: 'var(--success)' }}>+₹{comm.amount.toFixed(2)}</div>
+                            <div style={{ fontWeight: 700, color: isRevoked ? 'var(--error)' : 'var(--success)' }}>
+                              {isRevoked ? '-' : '+'}₹{Math.abs(comm.amount).toFixed(2)}
+                            </div>
                             <span style={{
                               fontSize: '0.65rem',
-                              background: comm.type === 'referral_commission_l1' ? 'rgba(0, 184, 148, 0.1)' : 'rgba(108, 92, 231, 0.1)',
-                              color: comm.type === 'referral_commission_l1' ? 'var(--success)' : '#a29bfe',
+                              background: isMilestone ? 'rgba(253, 203, 110, 0.1)' : (comm.type === 'referral_commission_l1' ? 'rgba(0, 184, 148, 0.1)' : 'rgba(108, 92, 231, 0.1)'),
+                              color: isMilestone ? 'var(--gold)' : (comm.type === 'referral_commission_l1' ? 'var(--success)' : '#a29bfe'),
                               padding: '1px 6px',
                               borderRadius: '4px',
                               fontWeight: 600,
                               display: 'inline-block',
                               marginTop: '4px'
                             }}>
-                              {comm.type === 'referral_commission_l1' ? 'Level 1' : 'Level 2'}
+                              {isMilestone ? 'Milestone' : (comm.type === 'referral_commission_l1' ? 'Level 1' : 'Level 2')}
                             </span>
                           </div>
                         </div>
@@ -2839,6 +2942,67 @@ export default function FastPayApp() {
                 💡 <strong>Important Info:</strong> Earn passive commissions instantly whenever members of your network subscribe to schemes. Commissions and referral bonuses are credited directly to your wallet available balance.
               </div>
             </div>
+          </div>
+
+          {/* Referral Reward Task Section */}
+          <div className="glass-panel" style={{ padding: '20px', marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }} className="gradient-text">
+              🎁 Referral Reward Task
+            </h3>
+            
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+              Invite 10 active users and earn up to ₹1,500 in milestone rewards. Rewards are unlocked as your referred users complete their first task.
+            </p>
+
+            {(() => {
+              const completedCount = teamData.referralTasks?.completedCount || 0;
+              const claimed = teamData.referralTasks?.claimedMilestones || [];
+              const progressPct = Math.min(100, (completedCount / 30) * 100);
+              const rewardEarned = claimed.length * 500;
+
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '4px' }}>
+                  {/* Progress Stats */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', fontWeight: 600 }}>
+                    <span style={{ color: 'var(--text-primary)' }}>Progress:</span>
+                    <span style={{ color: 'var(--accent-secondary)' }}>{completedCount} / 30 Tasks Completed</span>
+                  </div>
+
+                  {/* Progress Bar Container */}
+                  <div style={{ width: '100%', height: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', overflow: 'hidden' }}>
+                    <div style={{ width: `${progressPct}%`, height: '100%', background: 'linear-gradient(90deg, var(--accent-secondary) 0%, var(--success) 100%)', borderRadius: '4px', transition: 'width 0.3s ease' }}></div>
+                  </div>
+
+                  {/* Milestones List */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', background: 'rgba(0,0,0,0.15)', padding: '12px', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', alignItems: 'center' }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>Milestone 1 (10 Tasks):</span>
+                      <strong style={{ color: claimed.includes(1) ? 'var(--success)' : 'var(--text-primary)' }}>
+                        {claimed.includes(1) ? '✅ Completed (₹500)' : `${completedCount} / 10`}
+                      </strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', alignItems: 'center' }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>Milestone 2 (20 Tasks):</span>
+                      <strong style={{ color: claimed.includes(2) ? 'var(--success)' : 'var(--text-primary)' }}>
+                        {claimed.includes(2) ? '✅ Completed (₹500)' : `${completedCount} / 20`}
+                      </strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', alignItems: 'center' }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>Milestone 3 (30 Tasks):</span>
+                      <strong style={{ color: claimed.includes(3) ? 'var(--success)' : 'var(--text-primary)' }}>
+                        {claimed.includes(3) ? '✅ Completed (₹500)' : `${completedCount} / 30`}
+                      </strong>
+                    </div>
+                  </div>
+
+                  {/* Total Reward Earned */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', fontWeight: 700, borderTop: '1px solid var(--glass-border)', paddingTop: '10px', marginTop: '4px' }}>
+                    <span style={{ color: 'var(--text-primary)' }}>Total Reward Earned:</span>
+                    <span style={{ color: 'var(--success)' }}>₹{rewardEarned} / ₹1500</span>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
@@ -3405,7 +3569,7 @@ export default function FastPayApp() {
             <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <h3 style={{ fontSize: '1rem', fontWeight: 600 }} className="gradient-text">📱 Download APK</h3>
               <a
-                href={apkDownloadUrl}
+                href={getCleanApkUrl(apkDownloadUrl)}
                 className="gradient-btn interactive-card"
                 style={{
                   padding: '12px',
@@ -3421,6 +3585,21 @@ export default function FastPayApp() {
               >
                 Download APK Now
               </a>
+              <span
+                onClick={() => setShowDownloadHelp(true)}
+                style={{
+                  fontSize: '0.78rem',
+                  color: 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  textDecoration: 'underline',
+                  textAlign: 'center',
+                  transition: 'color 0.2s'
+                }}
+                onMouseEnter={(e) => e.target.style.color = 'var(--accent-secondary)'}
+                onMouseLeave={(e) => e.target.style.color = 'var(--text-secondary)'}
+              >
+                Problems downloading? View Guide & Mirror
+              </span>
             </div>
           )}
         </div>
@@ -3462,6 +3641,7 @@ export default function FastPayApp() {
               {[
                 { id: 'overview', label: 'Platform Overview' },
                 { id: 'users', label: 'User Management' },
+                { id: 'referral-tasks', label: 'Referral Reward Tasks' },
                 { id: 'transactions', label: 'Transaction Resolving' },
                 { id: 'orders', label: 'Scheme Purchases' },
                 { id: 'schemes', label: 'Investment Schemes' },
@@ -5076,6 +5256,159 @@ export default function FastPayApp() {
                   </div>
                 );
               })()}
+            </div>
+          )}
+
+          {/* Section: Referral Reward Tasks admin panel */}
+          {adminActiveSubTab === 'referral-tasks' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)' }}>Referral Reward Tasks Manager</h3>
+              
+              {/* Search Bar */}
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input
+                  type="text"
+                  placeholder="Search username or phone..."
+                  className="form-input"
+                  value={adminReferralTasksSearch}
+                  onChange={(e) => {
+                    setAdminReferralTasksSearch(e.target.value);
+                    setAdminReferralTasksPage(1);
+                    fetchAdminReferralTasks(1, e.target.value);
+                  }}
+                  style={{ fontSize: '0.85rem', flex: 1 }}
+                />
+                <button
+                  className="gradient-btn"
+                  onClick={() => fetchAdminReferralTasks(1, adminReferralTasksSearch)}
+                  style={{ padding: '0 16px', fontSize: '0.85rem', whiteSpace: 'nowrap' }}
+                >
+                  Search
+                </button>
+              </div>
+
+              {/* Data Table */}
+              {adminReferralTasksLoading ? (
+                <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>
+                  Loading Referral Reward Tasks stats...
+                </div>
+              ) : adminReferralTasksData.length === 0 ? (
+                <div className="glass-panel" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                  No users found or matching search query.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  {adminReferralTasksData.map((stat) => (
+                    <div key={stat.id} className="glass-panel" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      {/* User Info Header */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--glass-border)', paddingBottom: '8px' }}>
+                        <div>
+                          <strong style={{ fontSize: '1rem', color: 'var(--text-primary)' }}>{stat.username}</strong>
+                          <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', display: 'block' }}>ID: {stat.id} | Code: {stat.referralCode}</span>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', display: 'block' }}>Current Milestone:</span>
+                          <strong style={{ fontSize: '0.85rem', color: stat.claimedMilestones.length > 0 ? 'var(--success)' : 'var(--text-primary)' }}>{stat.currentMilestone}</strong>
+                        </div>
+                      </div>
+
+                      {/* Stats Grid */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 20px', fontSize: '0.8rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>Total Referrals:</span>
+                          <strong>{stat.totalReferredUsers}</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>Completed Tasks:</span>
+                          <strong style={{ color: 'var(--accent-secondary)' }}>{stat.completedReferralTasks}</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>Total Paid:</span>
+                          <strong style={{ color: 'var(--success)' }}>₹{stat.totalRewardPaid}</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>Remaining Reward:</span>
+                          <strong style={{ color: stat.remainingReward === 0 ? 'var(--text-secondary)' : 'var(--accent-secondary)' }}>₹{stat.remainingReward}</strong>
+                        </div>
+                      </div>
+
+                      {/* Progress Bar */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>Milestone Progress:</span>
+                          <strong>{stat.progressPercentage}% ({stat.completedReferralTasks} / 30)</strong>
+                        </div>
+                        <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '3px', overflow: 'hidden' }}>
+                          <div style={{ width: `${stat.progressPercentage}%`, height: '100%', background: 'linear-gradient(90deg, var(--accent-secondary) 0%, var(--success) 100%)', borderRadius: '3px' }}></div>
+                        </div>
+                      </div>
+
+                      {/* Manual Action Buttons */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', borderTop: '1px dashed var(--glass-border)', paddingTop: '10px', marginTop: '4px' }}>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>⚙️ Manual Milestone Operations:</span>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
+                          {[1, 2, 3].map((milestone) => {
+                            const isClaimed = stat.claimedMilestones.includes(milestone);
+                            return (
+                              <button
+                                key={milestone}
+                                onClick={() => handleAdminMilestoneAction(isClaimed ? 'revoke' : 'approve', stat.id, milestone)}
+                                className="interactive-card"
+                                style={{
+                                  padding: '8px',
+                                  borderRadius: '6px',
+                                  fontSize: '0.72rem',
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                  border: '1px solid var(--glass-border)',
+                                  background: isClaimed ? 'linear-gradient(135deg, #ff7675 0%, #d63031 100%)' : 'linear-gradient(135deg, #00b894 0%, #00cec9 100%)',
+                                  color: '#fff',
+                                  textAlign: 'center'
+                                }}
+                              >
+                                {isClaimed ? `Revoke M${milestone}` : `Approve M${milestone}`}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Pagination Controls */}
+                  {adminReferralTasksTotalPages > 1 && (
+                    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '16px', marginTop: '10px' }}>
+                      <button
+                        className="gradient-btn"
+                        disabled={adminReferralTasksPage <= 1}
+                        onClick={() => {
+                          const prevPage = adminReferralTasksPage - 1;
+                          setAdminReferralTasksPage(prevPage);
+                          fetchAdminReferralTasks(prevPage, adminReferralTasksSearch);
+                        }}
+                        style={{ padding: '8px 16px', fontSize: '0.8rem', opacity: adminReferralTasksPage <= 1 ? 0.5 : 1 }}
+                      >
+                        Prev
+                      </button>
+                      <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                        Page {adminReferralTasksPage} of {adminReferralTasksTotalPages}
+                      </span>
+                      <button
+                        className="gradient-btn"
+                        disabled={adminReferralTasksPage >= adminReferralTasksTotalPages}
+                        onClick={() => {
+                          const nextPage = adminReferralTasksPage + 1;
+                          setAdminReferralTasksPage(nextPage);
+                          fetchAdminReferralTasks(nextPage, adminReferralTasksSearch);
+                        }}
+                        style={{ padding: '8px 16px', fontSize: '0.8rem', opacity: adminReferralTasksPage >= adminReferralTasksTotalPages ? 0.5 : 1 }}
+                      >
+                        Next
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -7482,6 +7815,75 @@ export default function FastPayApp() {
           <span>Me</span>
         </button>
       </nav>
+
+      {/* --- DOWNLOAD HELP MODAL --- */}
+      {showDownloadHelp && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', fontFamily: 'Outfit, sans-serif' }}>
+          <div className="glass-panel animate-fade-in" style={{ width: '100%', maxWidth: '440px', padding: '24px', position: 'relative', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--glass-border)', paddingBottom: '12px' }}>
+              <h3 style={{ fontSize: '1.2rem', fontWeight: 700 }} className="gradient-text">APK Download Guide</h3>
+              <button
+                onClick={() => setShowDownloadHelp(false)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 600 }}
+              >
+                Close
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+              <p>
+                If your browser blocks the direct APK download or you encounter compatibility issues on Android 10-14+, please try these steps:
+              </p>
+              
+              <div style={{ borderLeft: '3px solid var(--accent-secondary)', paddingLeft: '10px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <strong style={{ color: 'var(--text-primary)' }}>1. Use the Fallback Mirror:</strong>
+                <span>Try downloading the APK with a general binary stream.</span>
+                <a
+                  href={`${getCleanApkUrl(apkDownloadUrl)}?mirror=true`}
+                  className="gradient-btn interactive-card"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                    padding: '8px 16px',
+                    borderRadius: '8px',
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    textDecoration: 'none',
+                    color: '#fff',
+                    marginTop: '6px',
+                    cursor: 'pointer',
+                    textAlign: 'center'
+                  }}
+                  download="FastPay.apk"
+                >
+                  🚀 Download via Fallback Mirror
+                </a>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
+                <strong style={{ color: 'var(--text-primary)' }}>2. How to allow the download:</strong>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>• Chrome / Edge:</span>
+                  <span>If prompted with "File might be harmful", tap <strong>Download anyway</strong>. If blocked, go to Android Settings &gt; Apps &gt; Chrome &gt; Install unknown apps &gt; Toggle <strong>Allow from this source</strong>.</span>
+                </div>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>• Samsung Internet:</span>
+                  <span>Tap <strong>Download</strong> on the popup prompt. If blocked, go to Settings &gt; Apps &gt; Samsung Internet &gt; Install unknown apps &gt; Toggle <strong>Allow from this source</strong>.</span>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>• Firefox:</span>
+                  <span>Tap <strong>Allow</strong>/<strong>Download</strong> when prompted. After download, enable installation permissions in Firefox settings when requested.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* --- OFFLINE OVERLAY BLOCK --- */}
       {isOffline && (

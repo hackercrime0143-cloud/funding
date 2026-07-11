@@ -20,7 +20,8 @@ export async function GET(request) {
           'pwa_splash_screen',
           'pwa_install_prompt_text',
           'pwa_version',
-          'pwa_update_notes'
+          'pwa_update_notes',
+          'apk_download_url'
         ] }
       });
       const settingsMap = {};
@@ -38,7 +39,8 @@ export async function GET(request) {
         version: settingsMap['pwa_version'] || '1.0.0',
         updateNotes: settingsMap['pwa_update_notes'] || ''
       };
-      return NextResponse.json({ error: 'Unauthorized session.', pwaSettings }, { status: 401 });
+      const apkDownloadUrl = settingsMap['apk_download_url'] || '/downloads/FastPay.apk';
+      return NextResponse.json({ error: 'Unauthorized session.', pwaSettings, apkDownloadUrl }, { status: 401 });
     }
 
     // Process daily payouts automatically when checking profile

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
-import { User, Scheme, Transaction, VirtualAccount, Order, Settings } from '@/lib/models';
+import { User, Scheme, Transaction, VirtualAccount, Order, Settings, checkAndAwardReferralMilestones } from '@/lib/models';
 import { getSessionFromCookies } from '@/lib/auth';
 import { saveBase64Image } from '@/lib/upload';
 
@@ -183,15 +183,25 @@ export async function POST(request) {
                     }
                   }
                 }
+                
+                // Trigger check and award referral milestones for Level A referrer
+                await checkAndAwardReferralMilestones(buyer.referred_by_id);
               }
             }
           }
         } else if (tx.amount >= 100 && tx.amount <= 500) {
           // Activate the custom scheme purchase order associated with the UTR
-          await Order.updateOne(
-            { user_id: tx.user_id, utr: tx.utr, status: 'confirmation_pending' },
-            { $set: { status: 'active', last_payout_at: new Date() } }
-          );
+          const order = await Order.findOne({ user_id: tx.user_id, utr: tx.utr, status: 'confirmation_pending' });
+          if (order) {
+            await Order.updateOne(
+              { _id: order._id },
+              { $set: { status: 'active', last_payout_at: new Date() } }
+            );
+            const buyer = await User.findById(tx.user_id);
+            if (buyer && buyer.referred_by_id) {
+              await checkAndAwardReferralMilestones(buyer.referred_by_id);
+            }
+          }
         } else {
           // Normal deposit credits the user's wallet balance
           await User.updateOne(
