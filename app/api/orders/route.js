@@ -163,17 +163,11 @@ export async function POST(request) {
           orderId: existingPending._id.toString(),
           createdAt: existingPending.created_at,
           depositDetails: matchedVa ? {
-            accountNumber: matchedVa.account_number,
-            bankName: matchedVa.bank_name,
-            beneficiaryName: matchedVa.beneficiary_name,
-            ifsc: matchedVa.ifsc,
-            upiId: matchedVa.upi_id || ""
+            upiId: matchedVa.upi_id || "",
+            qrCode: matchedVa.qr_code || ""
           } : {
-            accountNumber: "",
-            bankName: "",
-            beneficiaryName: "",
-            ifsc: "",
-            upiId: ""
+            upiId: "",
+            qrCode: ""
           }
         });
       }
@@ -284,11 +278,8 @@ export async function POST(request) {
     });
 
     const fallbackVa = {
-      accountNumber: "",
-      bankName: "",
-      beneficiaryName: "",
-      ifsc: "",
-      upiId: ""
+      upiId: "",
+      qrCode: ""
     };
 
     return NextResponse.json({
@@ -297,10 +288,6 @@ export async function POST(request) {
       orderId: newOrder._id.toString(),
       createdAt: newOrder.created_at,
       depositDetails: virtualAcc ? {
-        accountNumber: virtualAcc.account_number,
-        bankName: virtualAcc.bank_name,
-        beneficiaryName: virtualAcc.beneficiary_name,
-        ifsc: virtualAcc.ifsc,
         upiId: virtualAcc.upi_id || "",
         qrCode: virtualAcc.qr_code || ""
       } : fallbackVa

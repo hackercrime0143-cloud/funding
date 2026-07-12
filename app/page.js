@@ -2348,11 +2348,8 @@ export default function FastPayApp() {
       setCurrentDraftOrderCreatedAt(order.created_at);
       setActiveOrderDetails(scheme);
       setActiveOrderBankDetails({
-        accountNumber: order.virtual_account || "",
-        bankName: order.virtual_bank || "",
-        beneficiaryName: order.virtual_beneficiary || "",
-        ifsc: order.virtual_ifsc || "",
-        upiId: order.virtual_upi || ""
+        upiId: order.virtual_upi || "",
+        qrCode: order.virtual_qr_code || ""
       });
 
       // Calculate countdown timer dynamically based on order's created_at

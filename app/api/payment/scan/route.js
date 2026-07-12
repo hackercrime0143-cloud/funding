@@ -20,20 +20,38 @@ export async function POST(request) {
 
     const trimmedText = scannedText.trim();
 
-    // 1. Check if the QR code is in UsedQrCode
-    const alreadyUsed = await UsedQrCode.findOne({ qr_code_content: trimmedText });
-    if (alreadyUsed) {
-      return NextResponse.json({ error: 'QR Code Already Used' }, { status: 400 });
-    }
-
-    // 2. Extract UPI ID from scanned text if it's a UPI link
+    // Extract UPI ID from scanned text if it's a UPI link
     let upiId = null;
     const upiIdMatch = trimmedText.match(/pa=([^&]+)/i);
     if (upiIdMatch) {
       upiId = decodeURIComponent(upiIdMatch[1]).trim();
     }
 
-    // 3. Find matched active virtual account
+    // Check if the QR code/UPI ID is in UsedQrCode
+    const alreadyUsed = await UsedQrCode.findOne({
+      $or: [
+        { qr_code_content: trimmedText },
+        ...(upiId ? [{ qr_code_content: new RegExp(upiId, 'i') }] : [])
+      ]
+    });
+    if (alreadyUsed) {
+      return NextResponse.json({ error: 'QR Code Already Used' }, { status: 400 });
+    }
+
+    // Check if there is a matching disabled account
+    const disabledAcc = await VirtualAccount.findOne({
+      $or: [
+        { qr_code_data: trimmedText },
+        ...(upiId ? [{ upi_id: { $regex: new RegExp(`^${upiId}$`, 'i') } }] : []),
+        { upi_id: { $regex: new RegExp(`^${trimmedText}$`, 'i') } }
+      ],
+      is_enabled: false
+    });
+    if (disabledAcc) {
+      return NextResponse.json({ error: 'QR Code Already Used' }, { status: 400 });
+    }
+
+    // Find matched active virtual account
     let virtualAcc = null;
     if (upiId) {
       virtualAcc = await VirtualAccount.findOne({
@@ -49,7 +67,6 @@ export async function POST(request) {
       });
     }
 
-    // If still not matched, check if any enabled account has the upi_id exactly equal to trimmedText
     if (!virtualAcc) {
       virtualAcc = await VirtualAccount.findOne({
         upi_id: { $regex: new RegExp(`^${trimmedText}$`, 'i') },

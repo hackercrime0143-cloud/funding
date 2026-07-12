@@ -218,11 +218,8 @@ export async function POST(request) {
         transactionId: newTx._id.toString(),
         depositDetails: {
           amount: reqAmount,
-          accountNumber: virtualAcc.account_number,
-          bankName: virtualAcc.bank_name,
-          beneficiaryName: virtualAcc.beneficiary_name,
-          ifsc: virtualAcc.ifsc,
           upiId: virtualAcc.upi_id || '',
+          qrCode: virtualAcc.qr_code || '',
           expiresAt: lockUntil.toISOString()
         }
       });
