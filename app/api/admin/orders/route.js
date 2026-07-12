@@ -95,7 +95,11 @@ export async function GET(request) {
         upi_id: o.virtual_account_id.upi_id || ''
       } : null,
       is_payout_matched: o.is_payout_matched || false,
-      rejection_reason: o.rejection_reason || ''
+      rejection_reason: o.rejection_reason || '',
+      qr_token: o.qr_token || null,
+      qr_status: o.qr_status || 'pending',
+      qr_expiry_at: o.qr_expiry_at || null,
+      qr_paid_at: o.qr_paid_at || null
     }));
 
     return NextResponse.json({

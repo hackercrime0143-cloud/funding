@@ -5920,6 +5920,13 @@ export default function FastPayApp() {
                               onClick={(e) => e.stopPropagation()}
                             >
                               <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '12px' }}>
+                                <div>Order ID: <span style={{ fontFamily: 'monospace', color: 'var(--text-primary)' }}>{order.id}</span></div>
+                                <div>QR Token: <span style={{ fontFamily: 'monospace', color: 'var(--accent-secondary)' }}>{order.qr_token || 'N/A'}</span></div>
+                                <div>QR Status: <strong style={{ textTransform: 'capitalize', color: order.qr_status === 'paid' ? 'var(--success)' : order.qr_status === 'expired' ? 'var(--error)' : 'var(--gold)' }}>{order.qr_status || 'pending'}</strong></div>
+                                <div>QR Expiry: {order.qr_expiry_at ? new Date(order.qr_expiry_at).toLocaleString() : 'N/A'}</div>
+                                {order.qr_paid_at && (
+                                  <div>QR Paid Time: {new Date(order.qr_paid_at).toLocaleString()}</div>
+                                )}
                                 <div>Submitted UTR: <strong style={{ color: 'var(--text-primary)', fontSize: '0.85rem' }}>{order.utr}</strong></div>
                                 <div>Date: {new Date(order.created_at).toLocaleString()}</div>
                                 {order.days_remaining !== undefined && (
@@ -8317,8 +8324,8 @@ export default function FastPayApp() {
                   </div>
 
                   {/* QR Code */}
-                  {(activeOrderBankDetails?.qrCode || activeOrderBankDetails?.upiId) && (() => {
-                    const qrUrl = activeOrderBankDetails.qrCode ? activeOrderBankDetails.qrCode : `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=${activeOrderBankDetails.upiId}&pn=FastPay&am=${activeOrderDetails.price}&cu=INR`)}`;
+                  {activeOrderBankDetails?.qrCode && (() => {
+                    const qrUrl = activeOrderBankDetails.qrCode;
                     return (
                       <>
                         <div style={{ background: '#fff', padding: '10px', borderRadius: '12px', width: '200px', height: '200px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -8484,8 +8491,8 @@ export default function FastPayApp() {
                 </div>
 
                 {/* QR Code */}
-                {(virtualAccount?.qrCode || virtualAccount?.upiId) && (() => {
-                  const qrUrl = virtualAccount.qrCode ? virtualAccount.qrCode : `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=${virtualAccount.upiId}&pn=FastPay&am=${virtualAccount.amount}&cu=INR`)}`;
+                {virtualAccount?.qrCode && (() => {
+                  const qrUrl = virtualAccount.qrCode;
                   return (
                     <>
                       <div style={{ background: '#fff', padding: '10px', borderRadius: '12px', width: '200px', height: '200px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

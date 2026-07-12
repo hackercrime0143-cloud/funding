@@ -3,15 +3,19 @@ import connectDB from '@/lib/db';
 import { User, Order, Scheme, Transaction, VirtualAccount, createAdminNotification } from '@/lib/models';
 import { getSessionFromCookies } from '@/lib/auth';
 import { saveBase64Image } from '@/lib/upload';
+import crypto from 'crypto';
 
 // Helper to auto-cancel pending orders that are drafts (start with DRAFT-) older than 15 minutes
 async function autoCancelPendingOrders() {
   const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
+  const now = new Date();
 
   const ordersToCancel = await Order.find({
     status: 'pending',
-    utr: { $regex: /^DRAFT-/ },
-    created_at: { $lt: fifteenMinutesAgo }
+    $or: [
+      { utr: { $regex: /^DRAFT-/ }, created_at: { $lt: fifteenMinutesAgo } },
+      { qr_status: 'pending', qr_expiry_at: { $lt: now } }
+    ]
   });
 
   if (ordersToCancel.length > 0) {
@@ -20,7 +24,12 @@ async function autoCancelPendingOrders() {
 
     await Order.updateMany(
       { _id: { $in: orderIds } },
-      { status: 'cancelled' }
+      { 
+        $set: { 
+          status: 'cancelled',
+          qr_status: 'expired'
+        }
+      }
     );
 
     if (vaIds.length > 0) {
@@ -68,8 +77,8 @@ export async function GET(request) {
       virtual_bank: null,
       virtual_beneficiary: null,
       virtual_ifsc: null,
-      virtual_upi: o.virtual_account_id ? o.virtual_account_id.upi_id : null,
-      virtual_qr_code: o.virtual_account_id ? o.virtual_account_id.qr_code : null
+      virtual_upi: null,
+      virtual_qr_code: o.virtual_account_id ? (o.virtual_account_id.qr_code || `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=${o.virtual_account_id.upi_id}&pn=FastPay&am=${o.price}&cu=INR`)}`) : null
     }));
 
     return NextResponse.json({ success: true, orders });
@@ -157,16 +166,21 @@ export async function POST(request) {
       });
 
       if (existingPending) {
+        if (!existingPending.qr_token) {
+          existingPending.qr_token = crypto.randomBytes(16).toString('hex');
+          existingPending.qr_status = 'pending';
+          existingPending.qr_expiry_at = new Date(existingPending.created_at.getTime() + 15 * 60 * 1000);
+          await existingPending.save();
+        }
         const matchedVa = await VirtualAccount.findById(existingPending.virtual_account_id);
+        const dynamicUpiUrl = matchedVa ? `upi://pay?pa=${matchedVa.upi_id}&pn=FastPay&am=${scheme.price}&cu=INR&tr=${existingPending.qr_token}` : '';
         return NextResponse.json({
           success: true,
           orderId: existingPending._id.toString(),
           createdAt: existingPending.created_at,
           depositDetails: matchedVa ? {
-            upiId: matchedVa.upi_id || "",
-            qrCode: matchedVa.qr_code || ""
+            qrCode: matchedVa.qr_code || `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(dynamicUpiUrl)}`
           } : {
-            upiId: "",
             qrCode: ""
           }
         });
@@ -244,6 +258,9 @@ export async function POST(request) {
       screenshotUrl = await saveBase64Image(screenshot);
     }
 
+    const qrToken = crypto.randomBytes(16).toString('hex');
+    const qrExpiryAt = new Date(Date.now() + 15 * 60 * 1000);
+
     // Create order
     const newOrder = await Order.create({
       user_id: session.id,
@@ -255,7 +272,10 @@ export async function POST(request) {
       status: initialStatus,
       utr: finalUtr,
       screenshot: screenshotUrl,
-      virtual_account_id: virtualAcc._id
+      virtual_account_id: virtualAcc._id,
+      qr_token: qrToken,
+      qr_status: 'pending',
+      qr_expiry_at: qrExpiryAt
     });
 
     // Create corresponding deposit transaction
@@ -278,7 +298,6 @@ export async function POST(request) {
     });
 
     const fallbackVa = {
-      upiId: "",
       qrCode: ""
     };
 
@@ -288,8 +307,7 @@ export async function POST(request) {
       orderId: newOrder._id.toString(),
       createdAt: newOrder.created_at,
       depositDetails: virtualAcc ? {
-        upiId: virtualAcc.upi_id || "",
-        qrCode: virtualAcc.qr_code || ""
+        qrCode: virtualAcc.qr_code || `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=${virtualAcc.upi_id}&pn=FastPay&am=${scheme.price}&cu=INR&tr=${qrToken}`)}`
       } : fallbackVa
     });
   } catch (error) {
@@ -325,14 +343,40 @@ export async function PATCH(request) {
       return NextResponse.json({ error: 'Forbidden.' }, { status: 403 });
     }
 
+    // Verify QR session state before permitting any update (except user cancellation itself)
+    if (status !== 'cancelled') {
+      const qrStatus = order.qr_status || 'pending';
+      const now = new Date();
+      if (qrStatus === 'expired' || (qrStatus === 'pending' && order.qr_expiry_at && order.qr_expiry_at < now)) {
+        order.qr_status = 'expired';
+        order.status = 'cancelled';
+        await order.save();
+        return NextResponse.json({ error: 'This payment QR has expired or has already been used. Please create a new order.' }, { status: 400 });
+      }
+      if (qrStatus === 'cancelled') {
+        return NextResponse.json({ error: 'This payment QR has expired or has already been used. Please create a new order.' }, { status: 400 });
+      }
+      if (qrStatus === 'paid') {
+        return NextResponse.json({ error: 'This payment QR has expired or has already been used. Please create a new order.' }, { status: 400 });
+      }
+    }
+
     if (status) {
       order.status = status;
+      if (status === 'cancelled') {
+        order.qr_status = 'cancelled';
+      }
       if (['cancelled', 'failed', 'rejected', 'completed'].includes(status) && order.virtual_account_id) {
         await VirtualAccount.updateOne(
           { _id: order.virtual_account_id },
           { $set: { is_locked: false, locked_until: null, locked_by_user_id: null } }
         );
       }
+    }
+
+    if (utr || screenshot) {
+      order.qr_status = 'paid';
+      order.qr_paid_at = new Date();
     }
 
     if (utr) {

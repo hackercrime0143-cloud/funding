@@ -103,6 +103,10 @@ export async function POST(request) {
     order.status = 'active';
     order.days_remaining = Math.max(0, scheme.days - 1);
     order.last_payout_at = new Date();
+    order.qr_status = 'paid';
+    if (!order.qr_paid_at) {
+      order.qr_paid_at = new Date();
+    }
     await order.save();
 
     // Release and disable virtual account, and record UsedQrCode

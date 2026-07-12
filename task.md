@@ -1,5 +1,7 @@
 - [x] Add Notification Model and create notifications helper in `lib/models.js`
 - [x] Implement Admin Screenshot preview & thumbnail column in Deposits table inside User Details profile
+- [x] Add Notification Model and create notifications helper in `lib/models.js`
+- [x] Implement Admin Screenshot preview & thumbnail column in Deposits table inside User Details profile
 - [x] Create notifications API routes (`GET`/`POST`) in `app/api/admin/notifications/route.js`
 - [x] Create notifications on user actions (deposit, withdrawal, screenshot upload, scheme purchase)
 - [x] Add Notifications tab in Admin Panel with mark-as-read and real-time polling
@@ -8,9 +10,13 @@
 - [x] Add Profit Summary card on Home page with detailed breakdown page
 - [x] Replace Active Principal Balance with Total Profit in Me tab, making it clickable to open profit breakdown
 - [x] Populate `order_id` in transaction logs for payout tracking
-- [x] Implement Wallet Purchase logic in `app/api/orders/route.js`
-- [x] Update frontend purchase flow with Step 1.5 Payment Selection page
-- [x] Show Subscribed Principal Balance in Me tab, clickable to display active schemes details
+- [x] Extend `OrderSchema` in `lib/models.js` with dynamic QR fields (`qr_token`, `qr_status`, `qr_expiry_at`, `qr_paid_at`)
+- [x] Update `/api/orders` POST handler to generate and save unique QR tokens and expire times
+- [x] Update `autoCancelPendingOrders` and PATCH handlers in `/api/orders` to track QR lifecycle
+- [x] Update `/api/payment/scan` POST handler to extract and validate scanned dynamic UPI tokens
+- [x] Update `/api/admin/orders` GET handler to return dynamic QR fields
+- [x] Update `app/page.js` to display dynamic QR session details in the admin view
+- [x] Run Next.js production build to verify compilation
 - [x] Optimize Admin Panel Users API (`app/api/admin/users/route.js`) with bulk database aggregates
 - [x] Cache Admin stats dashboard metrics in `app/api/admin/stats/route.js`
 - [x] Optimize populated user fields in Admin transactions & orders API routes

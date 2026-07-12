@@ -133,6 +133,10 @@ export async function POST(request) {
               order.status = 'active';
               order.days_remaining = Math.max(0, scheme.days - 1);
               order.last_payout_at = new Date();
+              order.qr_status = 'paid';
+              if (!order.qr_paid_at) {
+                order.qr_paid_at = new Date();
+              }
               await order.save();
 
               // Log daily yield payout
@@ -193,9 +197,9 @@ export async function POST(request) {
           // Activate the custom scheme purchase order associated with the UTR
           const order = await Order.findOne({ user_id: tx.user_id, utr: tx.utr, status: 'confirmation_pending' });
           if (order) {
-            await Order.updateOne(
+             await Order.updateOne(
               { _id: order._id },
-              { $set: { status: 'active', last_payout_at: new Date() } }
+              { $set: { status: 'active', last_payout_at: new Date(), qr_status: 'paid', qr_paid_at: new Date() } }
             );
             const buyer = await User.findById(tx.user_id);
             if (buyer && buyer.referred_by_id) {
@@ -267,7 +271,7 @@ export async function POST(request) {
       if (tx.type === 'deposit' && tx.amount >= 100 && tx.amount <= 500) {
         await Order.updateOne(
           { user_id: tx.user_id, utr: tx.utr, status: 'confirmation_pending' },
-          { $set: { status: 'rejected' } }
+          { $set: { status: 'rejected', qr_status: 'cancelled' } }
         );
       }
 

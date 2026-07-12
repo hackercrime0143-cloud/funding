@@ -218,8 +218,7 @@ export async function POST(request) {
         transactionId: newTx._id.toString(),
         depositDetails: {
           amount: reqAmount,
-          upiId: virtualAcc.upi_id || '',
-          qrCode: virtualAcc.qr_code || '',
+          qrCode: virtualAcc.qr_code || `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=${virtualAcc.upi_id}&pn=FastPay&am=${reqAmount}&cu=INR`)}`,
           expiresAt: lockUntil.toISOString()
         }
       });
