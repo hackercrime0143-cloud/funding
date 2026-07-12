@@ -78,7 +78,7 @@ export async function GET(request) {
       virtual_beneficiary: null,
       virtual_ifsc: null,
       virtual_upi: null,
-      virtual_qr_code: o.virtual_account_id ? (o.virtual_account_id.qr_code || `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=${o.virtual_account_id.upi_id}&pn=FastPay&am=${o.price}&cu=INR`)}`) : null
+      virtual_qr_code: o.virtual_account_id ? (o.virtual_account_id.qr_code || `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=${o.virtual_account_id.upi_id}&pn=FastPay&am=${o.price}&cu=INR&tr=${o.qr_token || ''}`)}`) : null
     }));
 
     return NextResponse.json({ success: true, orders });
@@ -174,15 +174,13 @@ export async function POST(request) {
         }
         const matchedVa = await VirtualAccount.findById(existingPending.virtual_account_id);
         const dynamicUpiUrl = matchedVa ? `upi://pay?pa=${matchedVa.upi_id}&pn=FastPay&am=${scheme.price}&cu=INR&tr=${existingPending.qr_token}` : '';
+        const qrImage = matchedVa ? (matchedVa.qr_code || `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(dynamicUpiUrl)}`) : '';
         return NextResponse.json({
           success: true,
+          qrImage,
           orderId: existingPending._id.toString(),
-          createdAt: existingPending.created_at,
-          depositDetails: matchedVa ? {
-            qrCode: matchedVa.qr_code || `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(dynamicUpiUrl)}`
-          } : {
-            qrCode: ""
-          }
+          expiresAt: existingPending.qr_expiry_at ? existingPending.qr_expiry_at.toISOString() : new Date(existingPending.created_at.getTime() + 15 * 60 * 1000).toISOString(),
+          amount: existingPending.price
         });
       }
     }
@@ -297,18 +295,13 @@ export async function POST(request) {
       updated_at: newOrder.created_at
     });
 
-    const fallbackVa = {
-      qrCode: ""
-    };
-
+    const qrImage = virtualAcc ? (virtualAcc.qr_code || `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=${virtualAcc.upi_id}&pn=FastPay&am=${scheme.price}&cu=INR&tr=${qrToken}`)}`) : '';
     return NextResponse.json({
       success: true,
-      message: isDraft ? 'Draft order created.' : `Purchase request submitted for verification with UTR: ${utr.trim()}.`,
+      qrImage,
       orderId: newOrder._id.toString(),
-      createdAt: newOrder.created_at,
-      depositDetails: virtualAcc ? {
-        qrCode: virtualAcc.qr_code || `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=${virtualAcc.upi_id}&pn=FastPay&am=${scheme.price}&cu=INR&tr=${qrToken}`)}`
-      } : fallbackVa
+      expiresAt: qrExpiryAt.toISOString(),
+      amount: newOrder.price
     });
   } catch (error) {
     console.error('Order purchase/draft error:', error);

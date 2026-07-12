@@ -2109,8 +2109,10 @@ export default function FastPayApp() {
       }
       if (data.success) {
         setCurrentDraftOrderId(data.orderId);
-        setActiveOrderBankDetails(data.depositDetails);
-        setCurrentDraftOrderCreatedAt(data.createdAt);
+        setActiveOrderBankDetails({ qrCode: data.qrImage });
+        const expiresTime = new Date(data.expiresAt);
+        const createdTime = new Date(expiresTime.getTime() - 15 * 60 * 1000);
+        setCurrentDraftOrderCreatedAt(createdTime.toISOString());
         fetchOrders();
       }
     } catch (e) {
@@ -8313,9 +8315,9 @@ export default function FastPayApp() {
                 </div>
               )}
 
-              {(!activeOrderBankDetails || (!activeOrderBankDetails.upiId && !activeOrderBankDetails.accountNumber)) ? (
+              {!activeOrderBankDetails?.qrCode ? (
                 <div style={{ padding: '16px', background: 'rgba(255, 118, 117, 0.1)', border: '1px solid rgba(255, 118, 117, 0.2)', borderRadius: '10px', textAlign: 'center', color: 'var(--error)', fontSize: '0.85rem' }}>
-                  <strong>No Payment Account Configured:</strong> No payment details are currently set by the administrator. Please contact support to complete your deposit.
+                  <strong>QR Code unavailable.</strong> Please contact support.
                 </div>
               ) : (
                 <>
