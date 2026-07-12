@@ -64,10 +64,10 @@ export async function GET(request) {
       status: o.status,
       utr: o.utr,
       screenshot: o.screenshot,
-      virtual_account: o.virtual_account_id ? o.virtual_account_id.account_number : null,
-      virtual_bank: o.virtual_account_id ? o.virtual_account_id.bank_name : null,
-      virtual_beneficiary: o.virtual_account_id ? o.virtual_account_id.beneficiary_name : null,
-      virtual_ifsc: o.virtual_account_id ? o.virtual_account_id.ifsc : null,
+      virtual_account: null,
+      virtual_bank: null,
+      virtual_beneficiary: null,
+      virtual_ifsc: null,
       virtual_upi: o.virtual_account_id ? o.virtual_account_id.upi_id : null,
       virtual_qr_code: o.virtual_account_id ? o.virtual_account_id.qr_code : null
     }));

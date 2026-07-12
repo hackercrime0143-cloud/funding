@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
-import { User, Scheme, Transaction, VirtualAccount, Order, Settings, checkAndAwardReferralMilestones } from '@/lib/models';
+import { User, Scheme, Transaction, VirtualAccount, Order, Settings, UsedQrCode, checkAndAwardReferralMilestones } from '@/lib/models';
 import { getSessionFromCookies } from '@/lib/auth';
 import { saveBase64Image } from '@/lib/upload';
 
@@ -210,12 +210,29 @@ export async function POST(request) {
           );
         }
         
-        // Also unlock any associated virtual accounts
+        // Also unlock and disable any associated virtual accounts, and record UsedQrCode
         if (tx.virtual_account_id) {
-          await VirtualAccount.updateOne(
-            { _id: tx.virtual_account_id },
-            { $set: { is_locked: false, locked_until: null, locked_by_user_id: null } }
-          );
+          const va = await VirtualAccount.findById(tx.virtual_account_id);
+          if (va) {
+            const qrContent = va.qr_code_data || (va.upi_id ? `upi://pay?pa=${va.upi_id}` : '');
+            if (qrContent) {
+              try {
+                await UsedQrCode.create({
+                  qr_code_content: qrContent,
+                  virtual_account_id: va._id,
+                  order_id: tx.order_id,
+                  user_id: tx.user_id
+                });
+              } catch (e) {
+                console.error('Error saving UsedQrCode:', e);
+              }
+            }
+            va.is_locked = false;
+            va.locked_until = null;
+            va.locked_by_user_id = null;
+            va.is_enabled = false; // Disable to prevent reuse
+            await va.save();
+          }
         }
       }
 
@@ -388,7 +405,7 @@ export async function POST(request) {
     }
 
     else if (action === 'addPaymentAccount') {
-      const { bankName, beneficiaryName, accountNumber, ifsc, upiId, qrCode, allowConcurrent } = payload;
+      const { bankName, beneficiaryName, accountNumber, ifsc, upiId, qrCode, qrCodeData, allowConcurrent } = payload;
       if (!beneficiaryName || !accountNumber) {
         return NextResponse.json({ error: 'Beneficiary Name and Account/UPI are required.' }, { status: 400 });
       }
@@ -405,6 +422,7 @@ export async function POST(request) {
         ifsc: ifsc || '',
         upi_id: upiId || '',
         qr_code: qrCodeUrl,
+        qr_code_data: qrCodeData || '',
         allow_concurrent: !!allowConcurrent,
         is_enabled: true,
         last_assigned_at: new Date()

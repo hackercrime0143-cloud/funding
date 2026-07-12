@@ -19,6 +19,7 @@
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^11.0.0",
     "jsonwebtoken": "^9.0.2",
+    "jsqr": "^1.4.0",
     "lucide-react": "^0.379.0",
     "mongoose": "^9.7.3",
     "next": "14.2.3",

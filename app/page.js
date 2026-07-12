@@ -1,5 +1,6 @@
 'use client';
 
+import jsQR from 'jsqr';
 import { useState, useEffect, useRef } from 'react';
 import {
   Home as HomeIcon,
@@ -272,6 +273,7 @@ export default function FastPayApp() {
   const [newPaIfsc, setNewPaIfsc] = useState('');
   const [newPaUpiId, setNewPaUpiId] = useState('');
   const [newPaQrCode, setNewPaQrCode] = useState(null);
+  const [newPaQrCodeData, setNewPaQrCodeData] = useState('');
   const [newPaAllowConcurrent, setNewPaAllowConcurrent] = useState(false);
 
   // Admin Withdrawal Section States
@@ -301,6 +303,15 @@ export default function FastPayApp() {
   const [virtualAccountTimer, setVirtualAccountTimer] = useState(0);
   const [txMessage, setTxMessage] = useState({ type: '', text: '' });
   const [txHistory, setTxHistory] = useState([]);
+
+  // Scan QR to Pay States
+  const [showScanModal, setShowScanModal] = useState(false);
+  const [scanError, setScanError] = useState('');
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanLoading, setScanLoading] = useState(false);
+  const scanVideoRef = useRef(null);
+  const scanStreamRef = useRef(null);
+  const scanIntervalRef = useRef(null);
 
   const completedTxs = txHistory.filter(t => t.status === 'completed');
 
@@ -1279,6 +1290,7 @@ export default function FastPayApp() {
             ifsc: newPaIfsc,
             upiId: newPaUpiId,
             qrCode: newPaQrCode,
+            qrCodeData: newPaQrCodeData,
             allowConcurrent: newPaAllowConcurrent
           }
         })
@@ -1291,6 +1303,7 @@ export default function FastPayApp() {
         setNewPaIfsc('');
         setNewPaUpiId('');
         setNewPaQrCode(null);
+        setNewPaQrCodeData('');
         setNewPaAllowConcurrent(false);
         fetchAdminData();
       } else {
@@ -2120,12 +2133,153 @@ export default function FastPayApp() {
     }
   };
 
+  // QR Scan Handlers
+  const handleGalleryScan = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setScanLoading(true);
+    setScanError('');
+    try {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const img = new Image();
+        img.src = reader.result;
+        img.onload = async () => {
+          try {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+            const imageData = ctx.getImageData(0, 0, img.width, img.height);
+            const code = jsQR(imageData.data, img.width, img.height);
+            if (code) {
+              await verifyScannedQR(code.data);
+            } else {
+              setScanError('Could not decode QR code from the uploaded image. Please ensure it is a valid QR code image.');
+              setScanLoading(false);
+            }
+          } catch (err) {
+            console.error('Error parsing gallery image:', err);
+            setScanError('Error reading the image file.');
+            setScanLoading(false);
+          }
+        };
+      };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      console.error(err);
+      setScanError('Failed to read image.');
+      setScanLoading(false);
+    }
+  };
+
+  const startCameraScan = async () => {
+    setScanError('');
+    setIsScanning(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      scanStreamRef.current = stream;
+      if (scanVideoRef.current) {
+        scanVideoRef.current.srcObject = stream;
+        scanVideoRef.current.setAttribute('playsinline', 'true');
+        scanVideoRef.current.play();
+        
+        // Start scanning loop
+        scanIntervalRef.current = setInterval(() => {
+          if (scanVideoRef.current && scanVideoRef.current.readyState === scanVideoRef.current.HAVE_ENOUGH_DATA) {
+            try {
+              const canvas = document.createElement('canvas');
+              const video = scanVideoRef.current;
+              canvas.width = video.videoWidth;
+              canvas.height = video.videoHeight;
+              const ctx = canvas.getContext('2d');
+              ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+              const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+              const code = jsQR(imageData.data, canvas.width, canvas.height);
+              if (code) {
+                // Found QR Code!
+                stopCameraScan();
+                verifyScannedQR(code.data);
+              }
+            } catch (err) {
+              console.error('Frame decode error:', err);
+            }
+          }
+        }, 300);
+      }
+    } catch (err) {
+      console.error('Camera access error:', err);
+      setScanError('Failed to access camera. Please check your permissions or upload from gallery.');
+      setIsScanning(false);
+    }
+  };
+
+  const stopCameraScan = () => {
+    if (scanIntervalRef.current) {
+      clearInterval(scanIntervalRef.current);
+      scanIntervalRef.current = null;
+    }
+    if (scanStreamRef.current) {
+      scanStreamRef.current.getTracks().forEach(track => track.stop());
+      scanStreamRef.current = null;
+    }
+    setIsScanning(false);
+  };
+
+  const verifyScannedQR = async (scannedText) => {
+    setScanLoading(true);
+    setScanError('');
+    try {
+      const res = await fetch('/api/payment/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scannedText })
+      });
+      const data = await res.json();
+      if (data.success) {
+        // Open standard payment modal for this order
+        const scheme = {
+          id: 'custom_deposit_scheme',
+          name: 'Quick Deposit Scheme',
+          price: data.amount,
+          daily_return_rate: 0.035,
+          days: 3,
+          total_return: data.amount * (1 + 0.035 * 3)
+        };
+        
+        setCurrentDraftOrderId(data.orderId);
+        setCurrentDraftOrderCreatedAt(data.createdAt);
+        setActiveOrderDetails(scheme);
+        setActiveOrderBankDetails(data.depositDetails);
+        
+        const createdAt = new Date(data.createdAt);
+        const now = new Date();
+        const elapsedSecs = Math.floor((now - createdAt) / 1000);
+        const remainingSecs = Math.max(0, 900 - elapsedSecs);
+        setPaymentTimer(remainingSecs);
+        
+        setPaymentStep(2);
+        setShowScanModal(false);
+        fetchOrders();
+      } else {
+        setScanError(data.error || 'Invalid or used QR Code.');
+      }
+    } catch (e) {
+      console.error(e);
+      setScanError('Failed to connect to server.');
+    } finally {
+      setScanLoading(false);
+    }
+  };
+
   const handleCloseModal = async () => {
     setActiveOrderDetails(null);
     setPaymentStep(1);
     setPaymentUtr('');
     setPaymentScreenshot(null);
     setCurrentDraftOrderId(null);
+    stopCameraScan();
   };
 
   const handleCancelPurchase = async () => {
@@ -2789,7 +2943,11 @@ export default function FastPayApp() {
               </div>
               <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
                 <button
-                  style={{ flex: 1, padding: '10px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', color: 'var(--text-secondary)', pointerEvents: 'none', cursor: 'default', fontSize: '0.8rem' }}
+                  onClick={() => {
+                    setScanError('');
+                    setShowScanModal(true);
+                  }}
+                  style={{ flex: 1, padding: '10px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', color: 'var(--text-primary)', fontWeight: 600, cursor: 'pointer', fontSize: '0.8rem' }}
                 >
                   <Plus size={14} /> Deposit
                 </button>
@@ -7445,6 +7603,31 @@ export default function FastPayApp() {
                           const reader = new FileReader();
                           reader.onloadend = () => {
                             setNewPaQrCode(reader.result);
+                            
+                            // Client-side QR decoding using jsQR
+                            const img = new Image();
+                            img.src = reader.result;
+                            img.onload = () => {
+                              try {
+                                const canvas = document.createElement('canvas');
+                                canvas.width = img.width;
+                                canvas.height = img.height;
+                                const ctx = canvas.getContext('2d');
+                                ctx.drawImage(img, 0, 0);
+                                const imageData = ctx.getImageData(0, 0, img.width, img.height);
+                                const code = jsQR(imageData.data, img.width, img.height);
+                                if (code) {
+                                  console.log('Decoded QR Code content:', code.data);
+                                  setNewPaQrCodeData(code.data);
+                                } else {
+                                  console.log('Could not decode QR code from image');
+                                  setNewPaQrCodeData('');
+                                }
+                              } catch (err) {
+                                console.error('Error decoding uploaded QR:', err);
+                                setNewPaQrCodeData('');
+                              }
+                            };
                           };
                           reader.readAsDataURL(file);
                         }
@@ -7946,6 +8129,141 @@ export default function FastPayApp() {
         </div>
       )}
 
+      {/* --- MODAL: SCAN QR TO PAY / DEPOSIT --- */}
+      {showScanModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <style>{`
+            @keyframes scanLaser {
+              0% { top: 0%; }
+              50% { top: 100%; }
+              100% { top: 0%; }
+            }
+          `}</style>
+          <div className="glass-panel animate-fade-in" style={{ width: '100%', maxWidth: '450px', padding: '24px 20px', border: '1px solid rgba(255,255,255,0.08)', maxHeight: '90vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--glass-border)', paddingBottom: '10px' }}>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0 }} className="gradient-text">📸 Scan QR Code / Deposit</h3>
+              <button
+                onClick={() => {
+                  stopCameraScan();
+                  setShowScanModal(false);
+                }}
+                style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: '1.2rem', cursor: 'pointer' }}
+              >
+                &times;
+              </button>
+            </div>
+
+            {scanError && (
+              <div style={{ background: 'rgba(255, 118, 117, 0.1)', border: '1px solid rgba(255, 118, 117, 0.2)', padding: '12px', borderRadius: '8px', color: 'var(--error)', fontSize: '0.8rem', display: 'flex', gap: '6px', alignItems: 'center' }}>
+                <AlertCircle size={16} style={{ flexShrink: 0 }} />
+                <span>{scanError}</span>
+              </div>
+            )}
+
+            {scanLoading ? (
+              <div style={{ padding: '40px 0', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+                <div style={{ width: '30px', height: '30px', border: '3px solid rgba(255,255,255,0.1)', borderTopColor: 'var(--accent-secondary)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Processing and validating QR code...</span>
+              </div>
+            ) : (
+              <>
+                {!isScanning ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', textAlign: 'center', margin: '0 0 10px 0' }}>
+                      To make a deposit or purchase, scan a QR code using your camera or upload a QR code image saved in your gallery.
+                    </p>
+
+                    {/* Gallery Button */}
+                    <label
+                      className="interactive-card"
+                      style={{
+                        padding: '20px',
+                        background: 'rgba(255,255,255,0.02)',
+                        border: '1px dashed var(--glass-border)',
+                        borderRadius: '12px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: '8px',
+                        transition: 'all 0.2s',
+                        textAlign: 'center'
+                      }}
+                    >
+                      <Plus size={24} style={{ color: 'var(--accent-secondary)' }} />
+                      <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>Select QR from Gallery</span>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Accepts any saved QR code screenshot</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleGalleryScan}
+                        style={{ display: 'none' }}
+                      />
+                    </label>
+
+                    {/* Camera Button */}
+                    <button
+                      onClick={startCameraScan}
+                      className="gradient-btn"
+                      style={{
+                        padding: '14px',
+                        borderRadius: '10px',
+                        fontSize: '0.9rem',
+                        fontWeight: 600,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      📷 Scan with Camera
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center' }}>
+                    <div style={{ position: 'relative', width: '100%', maxWidth: '320px', aspectRatio: '1', borderRadius: '12px', overflow: 'hidden', background: '#000', border: '2px solid var(--accent-secondary)' }}>
+                      <video
+                        ref={scanVideoRef}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      />
+                      {/* Scanning laser line animation */}
+                      <div style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        height: '3px',
+                        background: 'var(--accent-secondary)',
+                        boxShadow: '0 0 10px var(--accent-secondary)',
+                        animation: 'scanLaser 2s linear infinite'
+                      }} />
+                    </div>
+
+                    <button
+                      onClick={stopCameraScan}
+                      style={{
+                        padding: '8px 16px',
+                        borderRadius: '8px',
+                        background: 'rgba(255, 118, 117, 0.1)',
+                        border: '1px solid rgba(255, 118, 117, 0.2)',
+                        color: 'var(--error)',
+                        fontSize: '0.8rem',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        marginTop: '8px'
+                      }}
+                    >
+                      Cancel Scan
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* --- MODAL 1: SCHEME DETAILS / SCHEME DIALOG --- */}
       {activeOrderDetails && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
@@ -7997,48 +8315,38 @@ export default function FastPayApp() {
                 </div>
               ) : (
                 <>
-                  <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textAlign: 'center', marginBottom: '5px' }}>
-                    Scan UPI QR Code or transfer to Bank Account below:
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textAlign: 'center', marginBottom: '8px' }}>
+                    Scan QR Code to Pay:
                   </div>
 
                   {/* QR Code */}
-                  {activeOrderBankDetails?.upiId && (
-                    <>
-                      <div style={{ background: '#fff', padding: '10px', borderRadius: '12px', width: '200px', height: '200px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <img
-                          src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=${activeOrderBankDetails.upiId}&pn=FastPay&am=${activeOrderDetails.price}&cu=INR`)}`}
-                          alt="Payment QR Code"
-                          style={{ width: '180px', height: '180px' }}
-                        />
-                      </div>
+                  {(activeOrderBankDetails?.qrCode || activeOrderBankDetails?.upiId) && (() => {
+                    const qrUrl = activeOrderBankDetails.qrCode ? activeOrderBankDetails.qrCode : `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=${activeOrderBankDetails.upiId}&pn=FastPay&am=${activeOrderDetails.price}&cu=INR`)}`;
+                    return (
+                      <>
+                        <div style={{ background: '#fff', padding: '10px', borderRadius: '12px', width: '200px', height: '200px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <img
+                            src={qrUrl}
+                            alt="Payment QR Code"
+                            style={{ width: '180px', height: '180px' }}
+                          />
+                        </div>
 
-                      <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textAlign: 'center', marginTop: '4px', marginBottom: '8px' }}>
-                        UPI ID: <strong style={{ color: 'var(--text-primary)' }}>{activeOrderBankDetails.upiId}</strong>
-                      </div>
-                    </>
-                  )}
-
-                  {/* Bank details card */}
-                  {activeOrderBankDetails?.accountNumber && (
-                    <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', borderRadius: '12px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.8rem' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ color: 'var(--text-secondary)' }}>Beneficiary Name:</span>
-                        <strong>{activeOrderBankDetails?.beneficiaryName || 'N/A'}</strong>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ color: 'var(--text-secondary)' }}>Bank Name:</span>
-                        <strong>{activeOrderBankDetails?.bankName || 'N/A'}</strong>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ color: 'var(--text-secondary)' }}>Account Number:</span>
-                        <strong>{activeOrderBankDetails?.accountNumber || 'N/A'}</strong>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ color: 'var(--text-secondary)' }}>IFSC Code:</span>
-                        <strong>{activeOrderBankDetails?.ifsc || 'N/A'}</strong>
-                      </div>
-                    </div>
-                  )}
+                        <div style={{ display: 'flex', justifyContent: 'center', marginTop: '10px', marginBottom: '8px' }}>
+                          <a
+                            href={qrUrl}
+                            download="FastPay_Payment_QR.png"
+                            target="_blank"
+                            rel="noreferrer"
+                            className="gradient-btn"
+                            style={{ padding: '6px 12px', borderRadius: '8px', fontSize: '0.75rem', textDecoration: 'none', color: '#fff', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                          >
+                            Save to Gallery
+                          </a>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </>
               )}
 
@@ -8179,56 +8487,33 @@ export default function FastPayApp() {
                 </div>
 
                 {/* QR Code */}
-                {virtualAccount?.upiId && (
-                  <>
-                    <div style={{ background: '#fff', padding: '10px', borderRadius: '12px', width: '200px', height: '200px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <img
-                        src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=${virtualAccount.upiId}&pn=FastPay&am=${virtualAccount.amount}&cu=INR`)}`}
-                        alt="Payment QR Code"
-                        style={{ width: '180px', height: '180px' }}
-                      />
-                    </div>
+                {(virtualAccount?.qrCode || virtualAccount?.upiId) && (() => {
+                  const qrUrl = virtualAccount.qrCode ? virtualAccount.qrCode : `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=${virtualAccount.upiId}&pn=FastPay&am=${virtualAccount.amount}&cu=INR`)}`;
+                  return (
+                    <>
+                      <div style={{ background: '#fff', padding: '10px', borderRadius: '12px', width: '200px', height: '200px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <img
+                          src={qrUrl}
+                          alt="Payment QR Code"
+                          style={{ width: '180px', height: '180px' }}
+                        />
+                      </div>
 
-                    <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textAlign: 'center', display: 'flex', justifyContent: 'center', gap: '6px', alignItems: 'center' }}>
-                      <span>UPI ID: <strong style={{ color: 'var(--text-primary)' }}>{virtualAccount.upiId}</strong></span>
-                      <button onClick={() => copyToClipboard(virtualAccount.upiId)} style={{ background: 'none', border: 'none', color: 'var(--accent-secondary)', cursor: 'pointer' }}><Copy size={12} /></button>
-                    </div>
-                  </>
-                )}
-
-                {/* Bank details card */}
-                <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.85rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '0.75rem' }}>Beneficiary Name</span>
-                      <strong>{virtualAccount.beneficiaryName}</strong>
-                    </div>
-                    <button onClick={() => copyToClipboard(virtualAccount.beneficiaryName)} style={{ background: 'none', border: 'none', color: 'var(--accent-secondary)', cursor: 'pointer' }}><Copy size={14} /></button>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--glass-border)', paddingTop: '8px' }}>
-                    <div>
-                      <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '0.75rem' }}>Account Number</span>
-                      <strong style={{ letterSpacing: '0.5px' }}>{virtualAccount.accountNumber}</strong>
-                    </div>
-                    <button onClick={() => copyToClipboard(virtualAccount.accountNumber)} style={{ background: 'none', border: 'none', color: 'var(--accent-secondary)', cursor: 'pointer' }}><Copy size={14} /></button>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--glass-border)', paddingTop: '8px' }}>
-                    <div>
-                      <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '0.75rem' }}>IFSC Code</span>
-                      <strong>{virtualAccount.ifsc}</strong>
-                    </div>
-                    <button onClick={() => copyToClipboard(virtualAccount.ifsc)} style={{ background: 'none', border: 'none', color: 'var(--accent-secondary)', cursor: 'pointer' }}><Copy size={14} /></button>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--glass-border)', paddingTop: '8px' }}>
-                    <div>
-                      <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '0.75rem' }}>Bank Branch</span>
-                      <strong>{virtualAccount.bankName}</strong>
-                    </div>
-                  </div>
-                </div>
+                      <div style={{ display: 'flex', justifyContent: 'center', marginTop: '10px', marginBottom: '8px' }}>
+                        <a
+                          href={qrUrl}
+                          download="FastPay_Payment_QR.png"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="gradient-btn"
+                          style={{ padding: '6px 12px', borderRadius: '8px', fontSize: '0.75rem', textDecoration: 'none', color: '#fff', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                        >
+                          Save to Gallery
+                        </a>
+                      </div>
+                    </>
+                  );
+                })()}
 
                 {/* UTR Input field */}
                 <div>
@@ -8866,17 +9151,7 @@ export default function FastPayApp() {
                 <strong>{selectedHistoryItem.date.toLocaleDateString()} {selectedHistoryItem.date.toLocaleTimeString()}</strong>
               </div>
 
-              {selectedHistoryItem.itemType === 'transaction' && selectedHistoryItem.raw.virtual_account && (
-                <div style={{ padding: '12px', background: 'var(--bg-tertiary)', borderRadius: '10px', marginTop: '4px' }}>
-                  <div style={{ fontWeight: 600, marginBottom: '6px', color: 'var(--accent-secondary)' }}>Settled Virtual Account Details:</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                    <div>Bank: <strong>{selectedHistoryItem.raw.virtual_bank}</strong></div>
-                    <div>Account Number: <strong>{selectedHistoryItem.raw.virtual_account}</strong></div>
-                    <div>IFSC: <strong>{selectedHistoryItem.raw.virtual_ifsc}</strong></div>
-                    <div>Beneficiary: <strong>{selectedHistoryItem.raw.virtual_beneficiary}</strong></div>
-                  </div>
-                </div>
-              )}
+
 
               {selectedHistoryItem.type === 'withdrawal' && (
                 <div style={{ padding: '12px', background: 'var(--bg-tertiary)', borderRadius: '10px', marginTop: '4px' }}>

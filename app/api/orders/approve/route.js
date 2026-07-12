@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
-import { User, Order, Transaction, Scheme, VirtualAccount, checkAndAwardReferralMilestones } from '@/lib/models';
+import { User, Order, Transaction, Scheme, VirtualAccount, UsedQrCode, checkAndAwardReferralMilestones } from '@/lib/models';
 import { getSessionFromCookies } from '@/lib/auth';
 
 export async function POST(request) {
@@ -105,12 +105,29 @@ export async function POST(request) {
     order.last_payout_at = new Date();
     await order.save();
 
-    // Release virtual account lock
+    // Release and disable virtual account, and record UsedQrCode
     if (order.virtual_account_id) {
-      await VirtualAccount.updateOne(
-        { _id: order.virtual_account_id },
-        { $set: { is_locked: false, locked_until: null, locked_by_user_id: null } }
-      );
+      const va = await VirtualAccount.findById(order.virtual_account_id);
+      if (va) {
+        const qrContent = va.qr_code_data || (va.upi_id ? `upi://pay?pa=${va.upi_id}` : '');
+        if (qrContent) {
+          try {
+            await UsedQrCode.create({
+              qr_code_content: qrContent,
+              virtual_account_id: va._id,
+              order_id: order._id,
+              user_id: order.user_id
+            });
+          } catch (e) {
+            console.error('Error saving UsedQrCode:', e);
+          }
+        }
+        va.is_locked = false;
+        va.locked_until = null;
+        va.locked_by_user_id = null;
+        va.is_enabled = false; // Disable to prevent reuse
+        await va.save();
+      }
     }
 
     // Sync approval state to the associated deposit transaction
