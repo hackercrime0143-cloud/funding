@@ -22,9 +22,7 @@ export default function RootLayout({ children }) {
         <link rel="apple-touch-icon" href="/icon-192.png" />
       </head>
       <body>
-        <div className="app-container">
-          {children}
-        </div>
+        {children}
       </body>
     </html>
   );

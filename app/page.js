@@ -79,7 +79,7 @@ export default function FastPayApp() {
   const [otpLoading, setOtpLoading] = useState(false);
 
   // Device check & Captcha states
-  const [isDeviceBlocked, setIsDeviceBlocked] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(false);
   const [captchaCode, setCaptchaCode] = useState('');
   const [captchaInput, setCaptchaInput] = useState('');
 
@@ -402,12 +402,8 @@ export default function FastPayApp() {
       const isMobileWidth = window.innerWidth <= 768;
       const isNative = window.Capacitor && window.Capacitor.isNativePlatform();
 
-      const isAdminUrl = window.location.search.includes('admin=true') || window.location.pathname.includes('/admin');
       const isDesktopDevice = !isMobileWidth && !isAndroid && !isIos && !isNative;
-
-      if (isDesktopDevice && !isAdminUrl) {
-        setIsDeviceBlocked(true);
-      }
+      setIsDesktop(isDesktopDevice);
 
       // Check if already running as standalone PWA
       const checkInstalled = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
@@ -447,21 +443,7 @@ export default function FastPayApp() {
     };
   }, []);
 
-  // 1a. Security Check: Restrict Desktop access for normal users, allow admin role bypass
-  useEffect(() => {
-    if (typeof window !== 'undefined' && user) {
-      const ua = navigator.userAgent || navigator.vendor || window.opera;
-      const isAndroid = /android/i.test(ua);
-      const isIos = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
-      const isMobileWidth = window.innerWidth <= 768;
-      const isNative = window.Capacitor && window.Capacitor.isNativePlatform();
-      const isDesktopDevice = !isMobileWidth && !isAndroid && !isIos && !isNative;
 
-      if (isDesktopDevice && user.role !== 'admin') {
-        setIsDeviceBlocked(true);
-      }
-    }
-  }, [user]);
 
   // 1b. Native platform integration, Push notifications, network & external link handlers
   useEffect(() => {
@@ -2578,7 +2560,21 @@ export default function FastPayApp() {
     );
   }
 
+  // Rendering Helper: Loading State
+  if (appState === 'loading') {
+    return (
+      <div className="app-container" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', gap: '15px' }}>
+        <RefreshCw style={{ animation: 'spin 1.5s linear infinite', color: 'var(--accent-secondary)' }} size={40} />
+        <h2 style={{ fontSize: '1.25rem', color: 'var(--text-secondary)' }}>Loading FastPay Secure...</h2>
+        <style jsx global>{`
+          @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        `}</style>
+      </div>
+    );
+  }
+
   // Rendering Helper: Device Restriction Block
+  const isDeviceBlocked = isDesktop && (!user || user.role !== 'admin');
   if (isDeviceBlocked) {
     return (
       <div style={{
@@ -2595,21 +2591,8 @@ export default function FastPayApp() {
       }}>
         <h2 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '16px', color: '#ff7675' }}>⚠️ Mobile Only Platform</h2>
         <p style={{ fontSize: '0.95rem', lineHeight: '1.6', color: '#a0a8c0', maxWidth: '360px' }}>
-          This platform is available only on mobile devices. Please use your Android phone to continue.
+          This platform is available only on mobile devices. Please use your Android phone.
         </p>
-      </div>
-    );
-  }
-
-  // Rendering Helper: Loading State
-  if (appState === 'loading') {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', gap: '15px' }}>
-        <RefreshCw style={{ animation: 'spin 1.5s linear infinite', color: 'var(--accent-secondary)' }} size={40} />
-        <h2 style={{ fontSize: '1.25rem', color: 'var(--text-secondary)' }}>Loading FastPay Secure...</h2>
-        <style jsx global>{`
-          @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        `}</style>
       </div>
     );
   }
@@ -2617,7 +2600,8 @@ export default function FastPayApp() {
   // Rendering Helper: Authentication Views
   if (appState === 'auth') {
     return (
-      <div className="animate-fade-in" style={{ padding: '30px 20px', display: 'flex', flexDirection: 'column', minHeight: '100vh', justifyContent: 'center' }}>
+      <div className="app-container">
+        <div className="animate-fade-in" style={{ padding: '30px 20px', display: 'flex', flexDirection: 'column', minHeight: '100vh', justifyContent: 'center' }}>
         <div className="glass-panel" style={{ padding: '30px 20px', border: '1px solid rgba(255,255,255,0.06)' }}>
           <h1 id="auth-title" style={{ textAlign: 'center', fontSize: '2rem', marginBottom: '8px' }} className="gradient-text">FastPay</h1>
           <p style={{ color: 'var(--text-secondary)', textAlign: 'center', fontSize: '0.875rem', marginBottom: '24px' }}>
@@ -2876,6 +2860,7 @@ export default function FastPayApp() {
             </span>
           </div>
         )}
+        </div>
       </div>
     );
   }
@@ -2884,7 +2869,8 @@ export default function FastPayApp() {
 
   // Rendering Helper: Dashboard Sub-tabs
   return (
-    <div style={{ padding: '20px 20px 100px 20px', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div className="app-container">
+      <div style={{ padding: '20px 20px 100px 20px', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
 
       {/* Top Header */}
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
@@ -9350,6 +9336,7 @@ export default function FastPayApp() {
         </div>
       )}
 
+      </div>
     </div>
   );
 }
