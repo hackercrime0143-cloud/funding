@@ -154,8 +154,10 @@ export async function POST(request) {
           .filter(id => id !== null);
       }
 
-      // Find an available virtual account: not locked, or lock has expired, or locked by the same user
+      // Find an available virtual account: not locked, or lock has expired, or locked by the same user, and has a QR image assigned
       let virtualAcc = await VirtualAccount.findOne({
+        is_enabled: { $ne: false },
+        qr_code: { $exists: true, $ne: null, $ne: '' },
         $and: [
           { _id: { $nin: excludedVaIds } },
           {
@@ -169,9 +171,11 @@ export async function POST(request) {
       });
 
       // Fallback: If no account matches because they are all excluded or locked,
-      // relax the exclusion constraint to find any available account
+      // relax the exclusion constraint to find any available account with a QR image
       if (!virtualAcc && excludedVaIds.length > 0) {
         virtualAcc = await VirtualAccount.findOne({
+          is_enabled: { $ne: false },
+          qr_code: { $exists: true, $ne: null, $ne: '' },
           $or: [
             { is_locked: false },
             { locked_until: { $lt: now } },
@@ -180,9 +184,12 @@ export async function POST(request) {
         });
       }
 
-      // Absolute Fallback: Pick the one whose lock expires first (oldest lock)
+      // Absolute Fallback: Pick the one whose lock expires first (oldest lock) and has a QR image
       if (!virtualAcc) {
-        virtualAcc = await VirtualAccount.findOne().sort({ locked_until: 1 });
+        virtualAcc = await VirtualAccount.findOne({
+          is_enabled: { $ne: false },
+          qr_code: { $exists: true, $ne: null, $ne: '' }
+        }).sort({ locked_until: 1 });
       }
 
       if (!virtualAcc) {
@@ -218,7 +225,7 @@ export async function POST(request) {
         transactionId: newTx._id.toString(),
         depositDetails: {
           amount: reqAmount,
-          qrCode: virtualAcc.qr_code || `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=${virtualAcc.upi_id}&pn=FastPay&am=${reqAmount}&cu=INR`)}`,
+          qrCode: virtualAcc.qr_code || null,
           expiresAt: lockUntil.toISOString()
         }
       });

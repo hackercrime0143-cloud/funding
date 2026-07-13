@@ -78,7 +78,7 @@ export async function GET(request) {
       virtual_beneficiary: null,
       virtual_ifsc: null,
       virtual_upi: null,
-      virtual_qr_code: o.virtual_account_id ? (o.virtual_account_id.qr_code || `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=${o.virtual_account_id.upi_id}&pn=FastPay&am=${o.price}&cu=INR&tr=${o.qr_token || ''}`)}`) : null
+      virtual_qr_code: o.virtual_account_id ? (o.virtual_account_id.qr_code || null) : null
     }));
 
     return NextResponse.json({ success: true, orders });
@@ -217,9 +217,10 @@ export async function POST(request) {
 
     let virtualAcc = null;
 
-    // 1. Find enabled accounts that are available (not locked, locked expired, locked by current user, or allow concurrent)
+    // 1. Find enabled accounts that are available (not locked, locked expired, locked by current user, or allow concurrent) and have a QR image assigned
     virtualAcc = await VirtualAccount.findOne({
       is_enabled: { $ne: false },
+      qr_code: { $exists: true, $ne: null, $ne: '' },
       $or: [
         { is_locked: false },
         { locked_until: { $lt: now } },
@@ -228,10 +229,11 @@ export async function POST(request) {
       ]
     }).sort({ last_assigned_at: 1 }); // Round-robin: oldest assigned first
 
-    // 3. If no available account, check if any enabled account allows concurrent usage
+    // 3. If no available account, check if any enabled account allows concurrent usage and has a QR image assigned
     if (!virtualAcc) {
       virtualAcc = await VirtualAccount.findOne({
         is_enabled: { $ne: false },
+        qr_code: { $exists: true, $ne: null, $ne: '' },
         allow_concurrent: true
       }).sort({ last_assigned_at: 1 });
     }
@@ -295,7 +297,7 @@ export async function POST(request) {
       updated_at: newOrder.created_at
     });
 
-    const qrImage = virtualAcc ? (virtualAcc.qr_code || `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=${virtualAcc.upi_id}&pn=FastPay&am=${scheme.price}&cu=INR&tr=${qrToken}`)}`) : '';
+    const qrImage = virtualAcc ? (virtualAcc.qr_code || '') : '';
     return NextResponse.json({
       success: true,
       qrImage,

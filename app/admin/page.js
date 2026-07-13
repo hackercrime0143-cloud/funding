@@ -814,6 +814,28 @@ export default function AdminPage() {
     }
   };
 
+  const handleChangePaQrImage = async (id, qrCodeBase64, qrCodeData) => {
+    try {
+      const res = await fetch('/api/admin/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'updatePaymentAccountQr',
+          payload: { id, qrCode: qrCodeBase64, qrCodeData }
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert('QR code image updated successfully!');
+        fetchAdminData();
+      } else {
+        alert(data.error || 'Failed to update QR code.');
+      }
+    } catch (e) {
+      alert('Error updating QR code.');
+    }
+  };
+
   const handleTogglePaymentAccountConcurrent = async (id) => {
     try {
       const res = await fetch('/api/admin/action', {
@@ -2774,15 +2796,15 @@ export default function AdminPage() {
                   </div>
                   <div>
                     <label style={{ display: 'block', fontSize: '0.8rem', color: '#94a3b8', marginBottom: '6px' }}>Bank Account Number</label>
-                    <input type="text" value={newPaAccountNumber} onChange={(e) => setNewPaAccountNumber(e.target.value)} style={{ width: '100%', background: '#090d16', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '6px', color: '#fff', padding: '10px 12px', outline: 'none' }} />
+                    <input type="text" value={newPaAccountNumber} onChange={(e) => setNewPaAccountNumber(e.target.value)} placeholder="e.g. 912010087654321" style={{ width: '100%', background: '#090d16', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '6px', color: '#fff', padding: '10px 12px', outline: 'none' }} />
                   </div>
                   <div>
                     <label style={{ display: 'block', fontSize: '0.8rem', color: '#94a3b8', marginBottom: '6px' }}>Bank IFSC Code</label>
-                    <input type="text" value={newPaIfsc} onChange={(e) => setNewPaIfsc(e.target.value)} style={{ width: '100%', background: '#090d16', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '6px', color: '#fff', padding: '10px 12px', outline: 'none' }} />
+                    <input type="text" value={newPaIfsc} onChange={(e) => setNewPaIfsc(e.target.value)} placeholder="e.g. UTIB0000123" style={{ width: '100%', background: '#090d16', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '6px', color: '#fff', padding: '10px 12px', outline: 'none' }} />
                   </div>
                   <div>
                     <label style={{ display: 'block', fontSize: '0.8rem', color: '#94a3b8', marginBottom: '6px' }}>UPI ID address</label>
-                    <input type="text" value={newPaUpiId} onChange={(e) => setNewPaUpiId(e.target.value)} style={{ width: '100%', background: '#090d16', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '6px', color: '#fff', padding: '10px 12px', outline: 'none' }} />
+                    <input type="text" value={newPaUpiId} onChange={(e) => setNewPaUpiId(e.target.value)} placeholder="e.g. upiId@ybl" style={{ width: '100%', background: '#090d16', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '6px', color: '#fff', padding: '10px 12px', outline: 'none' }} />
                   </div>
                   <div>
                     <label style={{ display: 'block', fontSize: '0.8rem', color: '#94a3b8', marginBottom: '6px' }}>UPI QR Image File (Auto-scan code)</label>
@@ -2828,12 +2850,52 @@ export default function AdminPage() {
                           <td style={{ padding: '12px 16px' }}>
                             <div>UPI ID: <code style={{ color: '#38bdf8' }}>{account.upi_id || '-'}</code></div>
                             {account.qr_code && (
-                              <img src={account.qr_code} alt="QR" style={{ height: '35px', borderRadius: '4px', border: '1px solid rgba(255, 255, 255, 0.1)', marginTop: '4px' }} />
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                                <img src={account.qr_code} alt="QR" style={{ height: '35px', borderRadius: '4px', border: '1px solid rgba(255, 255, 255, 0.1)' }} />
+                                <a href={account.qr_code} target="_blank" rel="noreferrer" style={{ fontSize: '0.7rem', color: '#a29bfe', textDecoration: 'none' }}>View</a>
+                              </div>
                             )}
+                            <div style={{ marginTop: '6px' }}>
+                              <label style={{ display: 'block', fontSize: '0.7rem', color: '#94a3b8', marginBottom: '2px' }}>Change QR Image:</label>
+                              <input 
+                                type="file" 
+                                accept="image/*" 
+                                onChange={(e) => {
+                                  const file = e.target.files[0];
+                                  if (file) {
+                                    const reader = new FileReader();
+                                    reader.onload = () => {
+                                      const img = new Image();
+                                      img.src = reader.result;
+                                      img.onload = () => {
+                                        let decodedData = '';
+                                        try {
+                                          const canvas = document.createElement('canvas');
+                                          canvas.width = img.width;
+                                          canvas.height = img.height;
+                                          const ctx = canvas.getContext('2d');
+                                          ctx.drawImage(img, 0, 0);
+                                          const imageData = ctx.getImageData(0, 0, img.width, img.height);
+                                          const code = jsQR(imageData.data, img.width, img.height);
+                                          if (code) {
+                                            decodedData = code.data;
+                                          }
+                                        } catch (err) {
+                                          console.error(err);
+                                        }
+                                        handleChangePaQrImage(account._id || account.id, reader.result, decodedData);
+                                      };
+                                    };
+                                    reader.readAsDataURL(file);
+                                  }
+                                }}
+                                style={{ fontSize: '0.7rem', width: '150px' }}
+                              />
+                            </div>
                           </td>
                           <td style={{ padding: '12px 16px' }}>
-                            <span style={{ fontSize: '0.75rem', background: account.is_active ? 'rgba(34, 197, 94, 0.12)' : 'rgba(239, 68, 68, 0.12)', color: account.is_active ? '#4ade80' : '#f87171', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>
-                              {account.is_active ? 'Active' : 'Disabled'}
+                            <span style={{ fontSize: '0.75rem', background: account.is_enabled ? 'rgba(34, 197, 94, 0.12)' : 'rgba(239, 68, 68, 0.12)', color: account.is_enabled ? '#4ade80' : '#f87171', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>
+                              {account.is_enabled ? 'Active' : 'Disabled'}
                             </span>
                           </td>
                           <td style={{ padding: '12px 16px' }}>

@@ -411,7 +411,13 @@ export async function POST(request) {
     else if (action === 'addPaymentAccount') {
       const { bankName, beneficiaryName, accountNumber, ifsc, upiId, qrCode, qrCodeData, allowConcurrent } = payload;
       if (!beneficiaryName || !accountNumber) {
-        return NextResponse.json({ error: 'Beneficiary Name and Account/UPI are required.' }, { status: 400 });
+        return NextResponse.json({ error: 'Beneficiary Name and Account Number are required.' }, { status: 400 });
+      }
+
+      if (String(accountNumber).includes('@')) {
+        return NextResponse.json({ 
+          error: 'Bank Account Number must be numeric and cannot contain a "@" symbol. If you wish to specify a UPI ID, please enter it in the UPI ID Address field.' 
+        }, { status: 400 });
       }
 
       let qrCodeUrl = '';
@@ -433,6 +439,31 @@ export async function POST(request) {
       });
 
       return NextResponse.json({ success: true, message: 'Payment account added successfully!' });
+    }
+
+    else if (action === 'updatePaymentAccountQr') {
+      const { id, qrCode, qrCodeData } = payload;
+      if (!id) {
+        return NextResponse.json({ error: 'Payment Account ID is required.' }, { status: 400 });
+      }
+
+      const account = await VirtualAccount.findById(id);
+      if (!account) {
+        return NextResponse.json({ error: 'Payment Account not found.' }, { status: 404 });
+      }
+
+      let qrCodeUrl = account.qr_code;
+      if (qrCode) {
+        qrCodeUrl = await saveBase64Image(qrCode);
+      }
+
+      account.qr_code = qrCodeUrl;
+      if (qrCodeData !== undefined) {
+        account.qr_code_data = qrCodeData || '';
+      }
+      await account.save();
+
+      return NextResponse.json({ success: true, message: 'QR Code image updated successfully!' });
     }
 
     else if (action === 'togglePaymentAccountStatus') {

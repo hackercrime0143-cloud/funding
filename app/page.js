@@ -1317,6 +1317,28 @@ export default function FastPayApp() {
     }
   };
 
+  const handleChangePaQrImage = async (id, qrCodeBase64, qrCodeData) => {
+    try {
+      const res = await fetch('/api/admin/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'updatePaymentAccountQr',
+          payload: { id, qrCode: qrCodeBase64, qrCodeData }
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert('QR code image updated successfully!');
+        fetchAdminData();
+      } else {
+        alert(data.error || 'Failed to update QR code.');
+      }
+    } catch (e) {
+      alert('Error updating QR code.');
+    }
+  };
+
   const handleTogglePaymentAccountConcurrent = async (id) => {
     try {
       const res = await fetch('/api/admin/action', {
@@ -7529,13 +7551,13 @@ export default function FastPayApp() {
                 <h4 style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--accent-secondary)', margin: 0 }}>➕ Add New Payment Account</h4>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Bank Name (use 'UPI' for UPI accounts)</label>
+                    <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Bank Name</label>
                     <input
                       type="text"
                       className="form-input"
                       value={newPaBankName}
                       onChange={(e) => setNewPaBankName(e.target.value)}
-                      placeholder="e.g. Axis Bank or UPI"
+                      placeholder="e.g. Axis Bank"
                       style={{ fontSize: '0.8rem', width: '100%' }}
                     />
                   </div>
@@ -7551,13 +7573,13 @@ export default function FastPayApp() {
                     />
                   </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Account Number / UPI ID</label>
+                    <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Bank Account Number</label>
                     <input
                       type="text"
                       className="form-input"
                       value={newPaAccountNumber}
                       onChange={(e) => setNewPaAccountNumber(e.target.value)}
-                      placeholder="e.g. 912010087654321 or upi@ybl"
+                      placeholder="e.g. 912010087654321"
                       style={{ fontSize: '0.8rem', width: '100%' }}
                     />
                   </div>
@@ -7573,13 +7595,13 @@ export default function FastPayApp() {
                     />
                   </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Alternative UPI (optional)</label>
+                    <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>UPI ID Address</label>
                     <input
                       type="text"
                       className="form-input"
                       value={newPaUpiId}
                       onChange={(e) => setNewPaUpiId(e.target.value)}
-                      placeholder="e.g. upi@paytm"
+                      placeholder="e.g. upiId@ybl"
                       style={{ fontSize: '0.8rem', width: '100%' }}
                     />
                   </div>
@@ -7682,6 +7704,43 @@ export default function FastPayApp() {
                                     }}>[View QR]</strong>
                                   ) : 'None'}
                                 </span>
+                                <div style={{ marginTop: '6px' }}>
+                                  <label style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: '2px' }}>Change/Assign QR Image:</label>
+                                  <input 
+                                    type="file" 
+                                    accept="image/*" 
+                                    onChange={(e) => {
+                                      const file = e.target.files[0];
+                                      if (file) {
+                                        const reader = new FileReader();
+                                        reader.onload = () => {
+                                          const img = new Image();
+                                          img.src = reader.result;
+                                          img.onload = () => {
+                                            let decodedData = '';
+                                            try {
+                                              const canvas = document.createElement('canvas');
+                                              canvas.width = img.width;
+                                              canvas.height = img.height;
+                                              const ctx = canvas.getContext('2d');
+                                              ctx.drawImage(img, 0, 0);
+                                              const imageData = ctx.getImageData(0, 0, img.width, img.height);
+                                              const code = jsQR(imageData.data, img.width, img.height);
+                                              if (code) {
+                                                decodedData = code.data;
+                                              }
+                                            } catch (err) {
+                                              console.error(err);
+                                            }
+                                            handleChangePaQrImage(account.id || account._id, reader.result, decodedData);
+                                          };
+                                        };
+                                        reader.readAsDataURL(file);
+                                      }
+                                    }}
+                                    style={{ fontSize: '0.7rem' }}
+                                  />
+                                </div>
                               </div>
                             </div>
                             <div style={{ display: 'flex', gap: '6px' }}>
@@ -8303,7 +8362,8 @@ export default function FastPayApp() {
 
               {!activeOrderBankDetails?.qrCode ? (
                 <div style={{ padding: '16px', background: 'rgba(255, 118, 117, 0.1)', border: '1px solid rgba(255, 118, 117, 0.2)', borderRadius: '10px', textAlign: 'center', color: 'var(--error)', fontSize: '0.85rem' }}>
-                  <strong>QR Code unavailable.</strong> Please contact support.
+                  <strong>QR Code unavailable.</strong><br />
+                  Please contact support or try another payment account.
                 </div>
               ) : (
                 <>
@@ -8312,99 +8372,92 @@ export default function FastPayApp() {
                   </div>
 
                   {/* QR Code */}
-                  {activeOrderBankDetails?.qrCode && (() => {
-                    const qrUrl = activeOrderBankDetails.qrCode;
-                    return (
-                      <>
-                        <div style={{ background: '#fff', padding: '10px', borderRadius: '12px', width: '200px', height: '200px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          <img
-                            src={qrUrl}
-                            alt="Payment QR Code"
-                            style={{ width: '180px', height: '180px' }}
-                          />
-                        </div>
-
-                        <div style={{ display: 'flex', justifyContent: 'center', marginTop: '10px', marginBottom: '8px' }}>
-                          <a
-                            href={qrUrl}
-                            download="FastPay_Payment_QR.png"
-                            target="_blank"
-                            rel="noreferrer"
-                            className="gradient-btn"
-                            style={{ padding: '6px 12px', borderRadius: '8px', fontSize: '0.75rem', textDecoration: 'none', color: '#fff', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                          >
-                            Save to Gallery
-                          </a>
-                        </div>
-                      </>
-                    );
-                  })()}
-                </>
-              )}
-
-              {/* UTR Input field */}
-              <div style={{ marginTop: '10px' }}>
-                <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>12-Digit Transaction UTR / Ref Number</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  maxLength={12}
-                  placeholder="Enter 12-digit UTR ID"
-                  value={paymentUtr}
-                  onChange={(e) => setPaymentUtr(e.target.value.replace(/\D/g, ''))}
-                  required
-                />
-              </div>
-
-              {/* Screenshot Upload field */}
-              <div style={{ marginTop: '10px' }}>
-                <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Upload Payment Screenshot / Receipt</label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="form-input"
-                  onChange={(e) => {
-                    const file = e.target.files[0];
-                    if (file) {
-                      const reader = new FileReader();
-                      reader.onloadend = () => {
-                        setPaymentScreenshot(reader.result);
-                      };
-                      reader.readAsDataURL(file);
-                    }
-                  }}
-                  required
-                />
-                {paymentScreenshot && (
-                  <div style={{ marginTop: '10px', textAlign: 'center' }}>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Screenshot Preview:</span>
+                  <div style={{ background: '#fff', padding: '10px', borderRadius: '12px', width: '200px', height: '200px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <img
-                      src={paymentScreenshot}
-                      alt="Screenshot Preview"
-                      style={{ maxWidth: '100%', maxHeight: '120px', borderRadius: '8px', border: '1px solid var(--glass-border)' }}
+                      src={activeOrderBankDetails.qrCode}
+                      alt="Payment QR Code"
+                      style={{ width: '180px', height: '180px' }}
                     />
                   </div>
-                )}
-              </div>
 
-              <button
-                onClick={() => {
-                  if (paymentUtr.length !== 12) {
-                    alert('Please enter a valid 12-digit UTR number.');
-                    return;
-                  }
-                  if (!paymentScreenshot) {
-                    alert('Please upload a screenshot of your transaction.');
-                    return;
-                  }
-                  handleBuyOrder(activeOrderDetails.id, paymentUtr, paymentScreenshot);
-                }}
-                className="gradient-btn"
-                disabled={paymentTimer === 0}
-                style={{ width: '100%', padding: '14px', borderRadius: '10px', fontSize: '1rem', marginTop: '10px', opacity: paymentTimer === 0 ? 0.5 : 1 }}
-              >
-                Submit Payment Details
-              </button>
+                  <div style={{ display: 'flex', justifyContent: 'center', marginTop: '10px', marginBottom: '8px' }}>
+                    <a
+                      href={activeOrderBankDetails.qrCode}
+                      download="FastPay_Payment_QR.png"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="gradient-btn"
+                      style={{ padding: '6px 12px', borderRadius: '8px', fontSize: '0.75rem', textDecoration: 'none', color: '#fff', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                    >
+                      Save to Gallery
+                    </a>
+                  </div>
+
+                  {/* UTR Input field */}
+                  <div style={{ marginTop: '10px' }}>
+                    <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>12-Digit Transaction UTR / Ref Number</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      maxLength={12}
+                      placeholder="Enter 12-digit UTR ID"
+                      value={paymentUtr}
+                      onChange={(e) => setPaymentUtr(e.target.value.replace(/\D/g, ''))}
+                      required
+                    />
+                  </div>
+
+                  {/* Screenshot Upload field */}
+                  <div style={{ marginTop: '10px' }}>
+                    <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Upload Payment Screenshot / Receipt</label>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="form-input"
+                      onChange={(e) => {
+                        const file = e.target.files[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onloadend = () => {
+                            setPaymentScreenshot(reader.result);
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                      required
+                    />
+                    {paymentScreenshot && (
+                      <div style={{ marginTop: '10px', textAlign: 'center' }}>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Screenshot Preview:</span>
+                        <img
+                          src={paymentScreenshot}
+                          alt="Screenshot Preview"
+                          style={{ maxWidth: '100%', maxHeight: '120px', borderRadius: '8px', border: '1px solid var(--glass-border)' }}
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      if (paymentUtr.length !== 12) {
+                        alert('Please enter a valid 12-digit UTR number.');
+                        return;
+                      }
+                      if (!paymentScreenshot) {
+                        alert('Please upload a screenshot of your transaction.');
+                        return;
+                      }
+                      handleBuyOrder(activeOrderDetails.id, paymentUtr, paymentScreenshot);
+                    }}
+                    className="gradient-btn"
+                    disabled={paymentTimer === 0}
+                    style={{ width: '100%', padding: '14px', borderRadius: '10px', fontSize: '1rem', marginTop: '10px', opacity: paymentTimer === 0 ? 0.5 : 1 }}
+                  >
+                    Submit Payment Details
+                  </button>
+                </>
+              )}
 
               <div style={{ display: 'flex', justifyContent: 'center', marginTop: '5px' }}>
                 <button
@@ -8479,87 +8532,90 @@ export default function FastPayApp() {
                 </div>
 
                 {/* QR Code */}
-                {virtualAccount?.qrCode && (() => {
-                  const qrUrl = virtualAccount.qrCode;
-                  return (
-                    <>
-                      <div style={{ background: '#fff', padding: '10px', borderRadius: '12px', width: '200px', height: '200px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <img
-                          src={qrUrl}
-                          alt="Payment QR Code"
-                          style={{ width: '180px', height: '180px' }}
-                        />
-                      </div>
-
-                      <div style={{ display: 'flex', justifyContent: 'center', marginTop: '10px', marginBottom: '8px' }}>
-                        <a
-                          href={qrUrl}
-                          download="FastPay_Payment_QR.png"
-                          target="_blank"
-                          rel="noreferrer"
-                          className="gradient-btn"
-                          style={{ padding: '6px 12px', borderRadius: '8px', fontSize: '0.75rem', textDecoration: 'none', color: '#fff', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                        >
-                          Save to Gallery
-                        </a>
-                      </div>
-                    </>
-                  );
-                })()}
-
-                {/* UTR Input field */}
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>12-Digit Transaction UTR / Ref Number</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    maxLength={12}
-                    placeholder="Enter 12-digit UTR ID"
-                    value={depositUtr}
-                    onChange={(e) => setDepositUtr(e.target.value.replace(/\D/g, ''))}
-                    required
-                  />
-                </div>
-
-                {/* Screenshot Upload field */}
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Upload Payment Screenshot / Receipt</label>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="form-input"
-                    onChange={(e) => {
-                      const file = e.target.files[0];
-                      if (file) {
-                        const reader = new FileReader();
-                        reader.onloadend = () => {
-                          setDepositScreenshot(reader.result);
-                        };
-                        reader.readAsDataURL(file);
-                      }
-                    }}
-                    required
-                  />
-                  {depositScreenshot && (
-                    <div style={{ marginTop: '10px', textAlign: 'center' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Screenshot Preview:</span>
+                {!virtualAccount?.qrCode ? (
+                  <div style={{ padding: '16px', background: 'rgba(255, 118, 117, 0.1)', border: '1px solid rgba(255, 118, 117, 0.2)', borderRadius: '10px', textAlign: 'center', color: 'var(--error)', fontSize: '0.85rem' }}>
+                    <strong>QR Code unavailable.</strong><br />
+                    Please contact support or try another payment account.
+                  </div>
+                ) : (
+                  <>
+                    {/* QR Code */}
+                    <div style={{ background: '#fff', padding: '10px', borderRadius: '12px', width: '200px', height: '200px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <img
-                        src={depositScreenshot}
-                        alt="Screenshot Preview"
-                        style={{ maxWidth: '100%', maxHeight: '120px', borderRadius: '8px', border: '1px solid var(--glass-border)' }}
+                        src={virtualAccount.qrCode}
+                        alt="Payment QR Code"
+                        style={{ width: '180px', height: '180px' }}
                       />
                     </div>
-                  )}
-                </div>
 
-                <button
-                  onClick={handleDepositProofSubmit}
-                  className="gradient-btn"
-                  disabled={virtualAccountTimer === 0}
-                  style={{ width: '100%', padding: '14px', borderRadius: '10px', fontSize: '1rem', marginTop: '10px', opacity: virtualAccountTimer === 0 ? 0.5 : 1 }}
-                >
-                  Submit Deposit Details
-                </button>
+                    <div style={{ display: 'flex', justifyContent: 'center', marginTop: '10px', marginBottom: '8px' }}>
+                      <a
+                        href={virtualAccount.qrCode}
+                        download="FastPay_Payment_QR.png"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="gradient-btn"
+                        style={{ padding: '6px 12px', borderRadius: '8px', fontSize: '0.75rem', textDecoration: 'none', color: '#fff', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                      >
+                        Save to Gallery
+                      </a>
+                    </div>
+
+                    {/* UTR Input field */}
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>12-Digit Transaction UTR / Ref Number</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        maxLength={12}
+                        placeholder="Enter 12-digit UTR ID"
+                        value={depositUtr}
+                        onChange={(e) => setDepositUtr(e.target.value.replace(/\D/g, ''))}
+                        required
+                      />
+                    </div>
+
+                    {/* Screenshot Upload field */}
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Upload Payment Screenshot / Receipt</label>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="form-input"
+                        onChange={(e) => {
+                          const file = e.target.files[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                              setDepositScreenshot(reader.result);
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                        required
+                      />
+                      {depositScreenshot && (
+                        <div style={{ marginTop: '10px', textAlign: 'center' }}>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Screenshot Preview:</span>
+                          <img
+                            src={depositScreenshot}
+                            alt="Screenshot Preview"
+                            style={{ maxWidth: '100%', maxHeight: '120px', borderRadius: '8px', border: '1px solid var(--glass-border)' }}
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    <button
+                      onClick={handleDepositProofSubmit}
+                      className="gradient-btn"
+                      disabled={virtualAccountTimer === 0}
+                      style={{ width: '100%', padding: '14px', borderRadius: '10px', fontSize: '1rem', marginTop: '10px', opacity: virtualAccountTimer === 0 ? 0.5 : 1 }}
+                    >
+                      Submit Deposit Details
+                    </button>
+                  </>
+                )}
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '5px' }}>
                   <button
