@@ -21,38 +21,67 @@ export async function GET(request) {
     }
 
     const { searchParams } = new URL(request.url);
-    const page = parseInt(searchParams.get('page')) || 1;
-    const limit = parseInt(searchParams.get('limit')) || 20;
+    const page = Math.max(1, parseInt(searchParams.get('page')) || 1);
+    const limit = Math.max(1, Math.min(500, parseInt(searchParams.get('limit')) || 20));
     const search = searchParams.get('search') || '';
+    const filter = searchParams.get('filter') || 'all'; // 'all', 'active', 'suspended', 'admins'
+    const sort = searchParams.get('sort') || 'date-desc'; // 'date-desc', 'date-asc', 'balance-desc', 'balance-asc', 'username-asc'
 
     const skip = (page - 1) * limit;
 
-    const query = { role: 'user' };
+    // Filter construction
+    const query = {};
+    if (filter === 'admins') {
+      query.role = 'admin';
+    } else if (filter === 'active') {
+      query.role = 'user';
+      query.is_suspended = { $ne: true };
+    } else if (filter === 'suspended') {
+      query.role = 'user';
+      query.is_suspended = true;
+    } else {
+      // 'all' -> return all registered standard users
+      query.role = 'user';
+    }
+
     if (search.trim() !== '') {
       const rx = new RegExp(search.trim(), 'i');
       query.$or = [
         { username: rx },
         { phone: rx },
-        { support_id: rx }
+        { email: rx },
+        { support_id: rx },
+        { referral_code: rx }
       ];
+    }
+
+    // Sort construction with deterministic _id tie-breaking
+    let sortObj = { created_at: -1, _id: -1 };
+    if (sort === 'date-asc') {
+      sortObj = { created_at: 1, _id: 1 };
+    } else if (sort === 'balance-desc') {
+      sortObj = { wallet_balance: -1, _id: -1 };
+    } else if (sort === 'balance-asc') {
+      sortObj = { wallet_balance: 1, _id: 1 };
+    } else if (sort === 'username-asc') {
+      sortObj = { username: 1, _id: 1 };
     }
 
     const total = await User.countDocuments(query);
     const rawUsers = await User.find(query)
-      .sort({ created_at: -1 })
+      .sort(sortObj)
       .skip(skip)
       .limit(limit);
 
     const userIds = rawUsers.map(u => u._id);
 
-    // Fetch bank details in bulk
+    // Bulk fetch secondary data ONLY for the current page's user IDs
     const bankDetailsList = await BankDetails.find({ user_id: { $in: userIds } });
     const bankMap = {};
     bankDetailsList.forEach(b => {
       bankMap[b.user_id.toString()] = b;
     });
 
-    // Fetch referral counts in bulk
     const referralCounts = await User.aggregate([
       { $match: { referred_by_id: { $in: userIds } } },
       { $group: { _id: '$referred_by_id', count: { $sum: 1 } } }
@@ -62,7 +91,6 @@ export async function GET(request) {
       refCountMap[r._id.toString()] = r.count;
     });
 
-    // Fetch deposit sums in bulk
     const depositSums = await Transaction.aggregate([
       { $match: { user_id: { $in: userIds }, type: 'deposit', status: 'completed' } },
       { $group: { _id: '$user_id', total: { $sum: '$amount' } } }
@@ -72,7 +100,6 @@ export async function GET(request) {
       depositMap[d._id.toString()] = d.total;
     });
 
-    // Fetch withdrawal sums in bulk
     const withdrawSums = await Transaction.aggregate([
       { $match: { user_id: { $in: userIds }, type: 'withdrawal', status: 'completed' } },
       { $group: { _id: '$user_id', total: { $sum: '$amount' } } }
@@ -82,7 +109,6 @@ export async function GET(request) {
       withdrawMap[w._id.toString()] = Math.abs(w.total);
     });
 
-    // Fetch pending withdrawal sums in bulk
     const pendingWithdrawSums = await Transaction.aggregate([
       { $match: { user_id: { $in: userIds }, type: 'withdrawal', status: 'pending' } },
       { $group: { _id: '$user_id', total: { $sum: '$amount' } } }
@@ -92,7 +118,6 @@ export async function GET(request) {
       pendingWithdrawMap[w._id.toString()] = Math.abs(w.total);
     });
 
-    // Fetch commission sums in bulk
     const commissionSums = await Transaction.aggregate([
       { 
         $match: { 
@@ -107,7 +132,6 @@ export async function GET(request) {
       commissionMap[c._id.toString()] = c.total;
     });
 
-    // Fetch active investment sums in bulk
     const activeInvestSums = await Order.aggregate([
       { $match: { user_id: { $in: userIds }, status: 'active', days_remaining: { $gt: 0 } } },
       { $group: { _id: '$user_id', total: { $sum: '$price' } } }
@@ -117,7 +141,6 @@ export async function GET(request) {
       activeInvestMap[i._id.toString()] = i.total;
     });
 
-    // Fetch referrers in bulk
     const referrerIds = rawUsers.map(u => u.referred_by_id).filter(Boolean);
     const referrers = await User.find({ _id: { $in: referrerIds } }).select('username');
     const referrerMap = {};
@@ -143,8 +166,11 @@ export async function GET(request) {
         support_id: u.support_id || null,
         referral_code: u.referral_code,
         wallet_balance: u.wallet_balance,
-        referred_by_id: u.referred_by_id ? u.referred_by_id.toString() : null,
+        walletBalance: u.wallet_balance,
+        role: u.role || 'user',
         is_suspended: u.is_suspended || false,
+        isSuspended: u.is_suspended || false,
+        referred_by_id: u.referred_by_id ? u.referred_by_id.toString() : null,
         created_at: u.created_at,
         bankDetails: bank ? {
           accountNumber: bank.account_number,
@@ -164,6 +190,8 @@ export async function GET(request) {
       };
     });
 
+    const pages = Math.ceil(total / limit) || 1;
+
     return NextResponse.json({
       success: true,
       users,
@@ -171,7 +199,7 @@ export async function GET(request) {
         total,
         page,
         limit,
-        pages: Math.ceil(total / limit)
+        pages
       }
     });
   } catch (error) {

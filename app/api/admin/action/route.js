@@ -378,7 +378,7 @@ export async function POST(request) {
     }
 
     else if (action === 'savePwaSettings') {
-      const { name, shortName, themeColor, backgroundColor, icon, splashScreen, installPromptText, version, updateNotes } = payload;
+      const { name, shortName, themeColor, backgroundColor, icon, splashScreen, installPromptText, version, updateNotes, forceUpdate, updateUrl } = payload;
       
       const iconUrl = icon ? await saveBase64Image(icon) : undefined;
       const splashScreenUrl = splashScreen ? await saveBase64Image(splashScreen) : undefined;
@@ -392,7 +392,10 @@ export async function POST(request) {
         { key: 'pwa_splash_screen', value: splashScreenUrl },
         { key: 'pwa_install_prompt_text', value: installPromptText },
         { key: 'pwa_version', value: version },
-        { key: 'pwa_update_notes', value: updateNotes }
+        { key: 'app_version', value: version },
+        { key: 'pwa_update_notes', value: updateNotes },
+        { key: 'pwa_force_update', value: forceUpdate ? 'true' : 'false' },
+        { key: 'apk_download_url', value: updateUrl }
       ];
 
       for (const update of updates) {
@@ -405,7 +408,7 @@ export async function POST(request) {
         }
       }
 
-      return NextResponse.json({ success: true, message: 'PWA settings updated successfully!' });
+      return NextResponse.json({ success: true, message: 'App version & PWA settings updated successfully!' });
     }
 
     else if (action === 'addPaymentAccount') {

@@ -2,6 +2,7 @@
 
 import jsQR from 'jsqr';
 import { useState, useEffect, useRef } from 'react';
+import { compareVersions } from '@/lib/versionHelper';
 import {
   Home as HomeIcon,
   TrendingUp,
@@ -230,8 +231,14 @@ export default function FastPayApp() {
   const [adminPwaBackgroundColor, setAdminPwaBackgroundColor] = useState('#000000');
   const [adminPwaIcon, setAdminPwaIcon] = useState('/icon-192.png');
   const [adminPwaSplashScreen, setAdminPwaSplashScreen] = useState('/icon-512.png');
-  const [adminPwaInstallPromptText, setAdminPwaInstallPromptText] = useState('Install FastPay to your device home screen for a native, fast, and full-screen mobile app experience.');
   const [adminPwaVersion, setAdminPwaVersion] = useState('1.0.0');
+  const [adminPwaForceUpdate, setAdminPwaForceUpdate] = useState(false);
+  const [adminApkDownloadUrl, setAdminApkDownloadUrl] = useState('/downloads/FastPay.apk');
+
+  // Version Check & Force Update Modal States
+  const CURRENT_APP_VERSION = '1.0.0';
+  const [serverVersionData, setServerVersionData] = useState(null);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
 
   // Admin Action Notifications States
   const [adminNotifications, setAdminNotifications] = useState([]);
@@ -704,6 +711,60 @@ export default function FastPayApp() {
     return () => clearInterval(interval);
   }, [user]);
 
+  const checkAppVersion = async () => {
+    try {
+      const res = await fetch(`/api/version?t=${Date.now()}`);
+      const data = await res.json();
+      if (data && data.success) {
+        setServerVersionData(data);
+        setAdminPwaVersion(data.latestVersion || '1.0.0');
+        setAdminPwaUpdateNotes(data.releaseNotes || '');
+        setAdminPwaForceUpdate(data.forceUpdate || false);
+        setAdminApkDownloadUrl(data.updateUrl || '/downloads/FastPay.apk');
+
+        const isNewer = compareVersions(CURRENT_APP_VERSION, data.latestVersion) < 0;
+        if (isNewer) {
+          setShowUpdateModal(true);
+        } else {
+          setShowUpdateModal(false);
+        }
+      }
+    } catch (e) {
+      console.error('Error checking app version:', e);
+    }
+  };
+
+  useEffect(() => {
+    checkAppVersion();
+  }, []);
+
+  // Lock back button when force update is active
+  useEffect(() => {
+    if (showUpdateModal && serverVersionData?.forceUpdate) {
+      const handlePopState = (e) => {
+        if (e) e.preventDefault();
+        window.history.pushState(null, '', window.location.href);
+      };
+      window.history.pushState(null, '', window.location.href);
+      window.addEventListener('popstate', handlePopState);
+      return () => window.removeEventListener('popstate', handlePopState);
+    }
+  }, [showUpdateModal, serverVersionData]);
+
+  // Lock Escape key when force update is active
+  useEffect(() => {
+    if (showUpdateModal && serverVersionData?.forceUpdate) {
+      const handleKeyDown = (e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      };
+      window.addEventListener('keydown', handleKeyDown, true);
+      return () => window.removeEventListener('keydown', handleKeyDown, true);
+    }
+  }, [showUpdateModal, serverVersionData]);
+
   const fetchSession = async () => {
     try {
       const res = await fetch('/api/auth/me');
@@ -991,10 +1052,10 @@ export default function FastPayApp() {
     }
   };
 
-  const fetchAdminUsers = async (page = 1, search = '') => {
+  const fetchAdminUsers = async (page = 1, search = userSearch, filter = userFilter, sort = userSort) => {
     setAdminLoading(true);
     try {
-      const res = await fetch(`/api/admin/users?page=${page}&limit=20&search=${encodeURIComponent(search)}`);
+      const res = await fetch(`/api/admin/users?page=${page}&limit=20&search=${encodeURIComponent(search)}&filter=${filter}&sort=${sort}`);
       const data = await res.json();
       if (data.success) {
         setAdminUsers(data.users);
@@ -1234,7 +1295,9 @@ export default function FastPayApp() {
             splashScreen: adminPwaSplashScreen,
             installPromptText: adminPwaInstallPromptText,
             version: adminPwaVersion,
-            updateNotes: adminPwaUpdateNotes
+            updateNotes: adminPwaUpdateNotes,
+            forceUpdate: adminPwaForceUpdate,
+            updateUrl: adminApkDownloadUrl
           }
         })
       });
@@ -1470,7 +1533,7 @@ export default function FastPayApp() {
   useEffect(() => {
     if (activeTab === 'admin') {
       if (adminActiveSubTab === 'users') {
-        fetchAdminUsers(userPage, userSearch);
+        fetchAdminUsers(userPage, userSearch, userFilter, userSort);
       } else if (adminActiveSubTab === 'transactions') {
         fetchAdminTransactions(txPage, adminTxFilter, adminSearchQuery);
       } else if (adminActiveSubTab === 'orders') {
@@ -1489,12 +1552,14 @@ export default function FastPayApp() {
     activeTab,
     adminActiveSubTab,
     userPage,
+    userSearch,
+    userFilter,
+    userSort,
     txPage,
     ordersPage,
     adminTxFilter,
     adminOrderFilter,
     adminSearchQuery,
-    userSearch,
     withdrawalPage,
     withdrawalFilter,
     withdrawalSearchQuery,
@@ -6703,97 +6768,73 @@ export default function FastPayApp() {
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {(() => {
-                  let list = adminUsers.filter(u => {
-                    const matchesSearch = u.username.toLowerCase().includes(userSearch.toLowerCase()) || u.phone.includes(userSearch);
-                    const matchesFilter = userFilter === 'all' ? true : userFilter === 'suspended' ? u.is_suspended : !u.is_suspended;
-                    return matchesSearch && matchesFilter;
-                  });
-
-                  // Sorting
-                  list = list.sort((a, b) => {
-                    if (userSort === 'date-desc') return new Date(b.created_at) - new Date(a.created_at);
-                    if (userSort === 'date-asc') return new Date(a.created_at) - new Date(b.created_at);
-                    if (userSort === 'balance-desc') return b.wallet_balance - a.wallet_balance;
-                    if (userSort === 'username-asc') return a.username.localeCompare(b.username);
-                    return 0;
-                  });
-
-                  // Pagination calculation
-                  const pageSize = 10;
-                  const totalPages = Math.ceil(list.length / pageSize) || 1;
-                  const paginatedList = list.slice((userPage - 1) * pageSize, userPage * pageSize);
-
-                  if (list.length === 0) {
-                    return <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-secondary)' }}>No matching users found.</div>;
-                  }
-
-                  return (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                      {paginatedList.map((u) => (
-                        <div
-                          key={u.id}
-                          className="glass-panel interactive-card"
-                          onClick={() => {
-                            setSelectedAdminUserId(u.id);
-                            fetchUserProfileDetails(u.id);
-                            setAdminView('user-profile');
-                          }}
-                          style={{
-                            padding: '16px',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '12px',
-                            background: 'var(--bg-secondary)',
-                            border: '1px solid var(--glass-border)',
-                            borderRadius: '6px',
-                            cursor: 'pointer'
-                          }}
-                        >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div>
-                              <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                 {u.username}
-                                 {u.is_suspended && (
-                                   <span style={{ fontSize: '0.6rem', background: 'rgba(255,118,117,0.15)', color: 'var(--error)', padding: '2px 7px', borderRadius: '4px', fontWeight: 700, letterSpacing: '0.5px' }}>SUSPENDED</span>
-                                 )}
-                              </div>
-                              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>{u.phone} • {u.email}</div>
+                {adminUsers.length === 0 ? (
+                  <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-secondary)' }}>No matching users found.</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {adminUsers.map((u) => (
+                      <div
+                        key={u.id}
+                        className="glass-panel interactive-card"
+                        onClick={() => {
+                          setSelectedAdminUserId(u.id);
+                          fetchUserProfileDetails(u.id);
+                          setAdminView('user-profile');
+                        }}
+                        style={{
+                          padding: '16px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '12px',
+                          background: 'var(--bg-secondary)',
+                          border: '1px solid var(--glass-border)',
+                          borderRadius: '6px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                               {u.username}
+                               {(u.is_suspended || u.isSuspended) && (
+                                 <span style={{ fontSize: '0.6rem', background: 'rgba(255,118,117,0.15)', color: 'var(--error)', padding: '2px 7px', borderRadius: '4px', fontWeight: 700, letterSpacing: '0.5px' }}>SUSPENDED</span>
+                               )}
                             </div>
-                            <div style={{ textAlign: 'right' }}>
-                              <div style={{ fontWeight: 700, color: 'var(--success)', fontSize: '1rem' }}>₹{u.wallet_balance.toFixed(2)}</div>
-                              <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '2px' }}>Ref: <strong>{u.referral_code}</strong></div>
-                              {u.support_id && <div style={{ fontSize: '0.65rem', color: '#a29bfe', marginTop: '2px', fontFamily: 'monospace', letterSpacing: '1px' }}>ID: {u.support_id}</div>}
-                            </div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>{u.phone} • {u.email}</div>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontWeight: 700, color: 'var(--success)', fontSize: '1rem' }}>₹{(u.wallet_balance || u.walletBalance || 0).toFixed(2)}</div>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '2px' }}>Ref: <strong>{u.referral_code}</strong></div>
+                            {u.support_id && <div style={{ fontSize: '0.65rem', color: '#a29bfe', marginTop: '2px', fontFamily: 'monospace', letterSpacing: '1px' }}>ID: {u.support_id}</div>}
                           </div>
                         </div>
-                      ))}
+                      </div>
+                    ))}
 
-                      {/* Pagination Controls */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--glass-border)', paddingTop: '10px', fontSize: '0.8rem' }}>
-                        <span style={{ color: 'var(--text-secondary)' }}>Page {userPage} of {totalPages} ({list.length} total users)</span>
-                        <div style={{ display: 'flex', gap: '6px' }}>
-                          <button
-                            disabled={userPage === 1}
-                            onClick={() => setUserPage(prev => Math.max(1, prev - 1))}
-                            className="form-input"
-                            style={{ width: 'auto', padding: '4px 10px', background: userPage === 1 ? 'transparent' : 'var(--bg-secondary)', cursor: userPage === 1 ? 'default' : 'pointer', opacity: userPage === 1 ? 0.4 : 1 }}
-                          >
-                            Prev
-                          </button>
-                          <button
-                            disabled={userPage === totalPages}
-                            onClick={() => setUserPage(prev => Math.min(totalPages, prev + 1))}
-                            className="form-input"
-                            style={{ width: 'auto', padding: '4px 10px', background: userPage === totalPages ? 'transparent' : 'var(--bg-secondary)', cursor: userPage === totalPages ? 'default' : 'pointer', opacity: userPage === totalPages ? 0.4 : 1 }}
-                          >
-                            Next
-                          </button>
-                        </div>
+                    {/* Pagination Controls */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--glass-border)', paddingTop: '10px', fontSize: '0.8rem' }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>Page {userPage} of {userTotalPages} ({adminTotalUsersCount} total registered users)</span>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button
+                          disabled={userPage <= 1}
+                          onClick={() => setUserPage(prev => Math.max(1, prev - 1))}
+                          className="form-input"
+                          style={{ width: 'auto', padding: '4px 10px', background: userPage <= 1 ? 'transparent' : 'var(--bg-secondary)', cursor: userPage <= 1 ? 'default' : 'pointer', opacity: userPage <= 1 ? 0.4 : 1 }}
+                        >
+                          Prev
+                        </button>
+                        <button
+                          disabled={userPage >= userTotalPages}
+                          onClick={() => setUserPage(prev => Math.min(userTotalPages, prev + 1))}
+                          className="form-input"
+                          style={{ width: 'auto', padding: '4px 10px', background: userPage >= userTotalPages ? 'transparent' : 'var(--bg-secondary)', cursor: userPage >= userTotalPages ? 'default' : 'pointer', opacity: userPage >= userTotalPages ? 0.4 : 1 }}
+                        >
+                          Next
+                        </button>
                       </div>
                     </div>
-                  );
-                })()}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -7499,17 +7540,43 @@ export default function FastPayApp() {
                     <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>Current path: {adminPwaSplashScreen}</span>
                   </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>App Version</label>
+                    <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>App Release Version (e.g. 1.5.6)</label>
                     <input
                       type="text"
                       className="form-input"
+                      placeholder="1.5.6"
                       value={adminPwaVersion}
                       onChange={(e) => setAdminPwaVersion(e.target.value)}
                       style={{ fontSize: '0.8rem', width: '100%' }}
                     />
                   </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Update Download URL (APK / Play Store Link)</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="/downloads/FastPay.apk"
+                      value={adminApkDownloadUrl}
+                      onChange={(e) => setAdminApkDownloadUrl(e.target.value)}
+                      style={{ fontSize: '0.8rem', width: '100%' }}
+                    />
+                  </div>
                 </div>
-                 <div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'rgba(255,118,117,0.1)', border: '1px solid rgba(255,118,117,0.3)', padding: '14px', borderRadius: '8px', margin: '8px 0' }}>
+                  <input
+                    type="checkbox"
+                    id="adminPwaForceUpdate_page"
+                    checked={adminPwaForceUpdate}
+                    onChange={(e) => setAdminPwaForceUpdate(e.target.checked)}
+                    style={{ width: '20px', height: '20px', cursor: 'pointer', accentColor: 'var(--error)' }}
+                  />
+                  <label htmlFor="adminPwaForceUpdate_page" style={{ cursor: 'pointer', fontSize: '0.85rem', fontWeight: 700, color: 'var(--error)' }}>
+                    Mandatory Force Update (Locks user access until app is updated to latest version)
+                  </label>
+                </div>
+
+                <div>
                   <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Install Prompt Text</label>
                   <textarea
                     rows={2}
@@ -7520,10 +7587,10 @@ export default function FastPayApp() {
                   />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Update Release Notes</label>
+                  <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Update Release Notes / What's New</label>
                   <textarea
-                    rows={3}
-                    placeholder="Enter what's new in this version..."
+                    rows={4}
+                    placeholder="Enter what's new in this version (one item per line)..."
                     className="form-input"
                     value={adminPwaUpdateNotes}
                     onChange={(e) => setAdminPwaUpdateNotes(e.target.value)}
@@ -9388,6 +9455,167 @@ export default function FastPayApp() {
             >
               Retry Connection
             </button>
+          </div>
+        </div>
+      {/* Centralized Version & Force Update Modal Overlay */}
+      {showUpdateModal && serverVersionData && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 999999,
+            background: 'rgba(5, 8, 16, 0.88)',
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+            userSelect: 'none'
+          }}
+        >
+          <div
+            className="glass-panel"
+            style={{
+              width: '100%',
+              maxWidth: '440px',
+              background: 'linear-gradient(145deg, rgba(15, 23, 42, 0.98), rgba(30, 41, 59, 0.95))',
+              border: '1px solid rgba(255, 255, 255, 0.12)',
+              borderRadius: '20px',
+              padding: '28px 24px',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7), 0 0 30px rgba(0, 198, 255, 0.15)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '20px',
+              textAlign: 'center',
+              animation: 'fadeInScale 0.3s ease-out'
+            }}
+          >
+            {/* Header Icon */}
+            <div style={{ display: 'flex', justifyContent: 'center' }}>
+              <div
+                style={{
+                  width: '68px',
+                  height: '68px',
+                  borderRadius: '20px',
+                  background: 'linear-gradient(135deg, #00c6ff 0%, #0072ff 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: '0 10px 25px rgba(0, 114, 255, 0.4)'
+                }}
+              >
+                <TrendingUp size={36} color="#ffffff" />
+              </div>
+            </div>
+
+            {/* Version Badge & Title */}
+            <div>
+              <span
+                style={{
+                  display: 'inline-block',
+                  background: 'rgba(0, 198, 255, 0.15)',
+                  border: '1px solid rgba(0, 198, 255, 0.3)',
+                  color: '#00c6ff',
+                  fontSize: '0.75rem',
+                  fontWeight: 800,
+                  letterSpacing: '1px',
+                  padding: '4px 12px',
+                  borderRadius: '20px',
+                  marginBottom: '10px',
+                  textTransform: 'uppercase'
+                }}
+              >
+                New Version Released • v{serverVersionData.latestVersion}
+              </span>
+              <h2 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#ffffff', margin: 0, letterSpacing: '-0.3px' }}>
+                Update Available
+              </h2>
+              <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '6px', lineHeight: 1.4 }}>
+                A new version of FastPay is available with performance improvements, critical security updates, and bug fixes.
+              </p>
+            </div>
+
+            {/* Release Notes / Changelog */}
+            {serverVersionData.releaseNotes && (
+              <div
+                style={{
+                  background: 'rgba(0, 0, 0, 0.3)',
+                  border: '1px solid rgba(255, 255, 255, 0.06)',
+                  borderRadius: '12px',
+                  padding: '14px 16px',
+                  textAlign: 'left',
+                  maxHeight: '180px',
+                  overflowY: 'auto'
+                }}
+              >
+                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#38bdf8', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>
+                  What's New:
+                </div>
+                <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '0.82rem', color: '#cbd5e1', lineHeight: 1.6 }}>
+                  {serverVersionData.releaseNotes
+                    .split(/\r?\n|•/)
+                    .map(item => item.trim())
+                    .filter(Boolean)
+                    .map((note, idx) => (
+                      <li key={idx} style={{ marginBottom: '4px' }}>
+                        {note}
+                      </li>
+                    ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Force Update Warning Notice */}
+            {serverVersionData.forceUpdate && (
+              <div style={{ fontSize: '0.75rem', color: '#ef4444', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', padding: '8px 12px', borderRadius: '8px', fontWeight: 600 }}>
+                ⚠️ Mandatory Update Required to continue using FastPay.
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '6px' }}>
+              <button
+                onClick={() => {
+                  const url = serverVersionData.updateUrl || '/downloads/FastPay.apk';
+                  if (typeof window !== 'undefined') {
+                    window.open(url, '_blank');
+                  }
+                }}
+                className="gradient-btn"
+                style={{
+                  width: '100%',
+                  padding: '14px',
+                  borderRadius: '12px',
+                  fontSize: '0.95rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  boxShadow: '0 8px 20px rgba(0, 114, 255, 0.3)'
+                }}
+              >
+                Update Now
+              </button>
+
+              {!serverVersionData.forceUpdate && (
+                <button
+                  onClick={() => setShowUpdateModal(false)}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    borderRadius: '12px',
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    color: '#94a3b8',
+                    background: 'transparent',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Skip for Now
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

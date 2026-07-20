@@ -167,6 +167,8 @@ export default function AdminPage() {
   const [adminPwaInstallPromptText, setAdminPwaInstallPromptText] = useState('');
   const [adminPwaVersion, setAdminPwaVersion] = useState('1.0.0');
   const [adminPwaUpdateNotes, setAdminPwaUpdateNotes] = useState('');
+  const [adminPwaForceUpdate, setAdminPwaForceUpdate] = useState(false);
+  const [adminApkDownloadUrl, setAdminApkDownloadUrl] = useState('/downloads/FastPay.apk');
 
   // Scheme Form States
   const [newSchemeName, setNewSchemeName] = useState('');
@@ -347,10 +349,10 @@ export default function AdminPage() {
     }
   };
 
-  const fetchAdminUsers = async (page = 1, search = '') => {
+  const fetchAdminUsers = async (page = 1, search = userSearch, filter = userFilter, sort = userSort) => {
     setAdminLoading(true);
     try {
-      const res = await fetch(`/api/admin/users?page=${page}&limit=20&search=${encodeURIComponent(search)}&filter=${userFilter}&sort=${userSort}`);
+      const res = await fetch(`/api/admin/users?page=${page}&limit=20&search=${encodeURIComponent(search)}&filter=${filter}&sort=${sort}`);
       const data = await res.json();
       if (data.success) {
         setAdminUsers(data.users);
@@ -743,7 +745,9 @@ export default function AdminPage() {
             splashScreen: adminPwaSplashScreen,
             installPromptText: adminPwaInstallPromptText,
             version: adminPwaVersion,
-            updateNotes: adminPwaUpdateNotes
+            updateNotes: adminPwaUpdateNotes,
+            forceUpdate: adminPwaForceUpdate,
+            updateUrl: adminApkDownloadUrl
           }
         })
       });
@@ -2757,8 +2761,24 @@ export default function AdminPage() {
                   <input type="text" value={adminPwaSplashScreen} onChange={(e) => setAdminPwaSplashScreen(e.target.value)} style={{ width: '100%', background: '#090d16', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '6px', color: '#fff', padding: '10px 12px', outline: 'none' }} />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', color: '#94a3b8', marginBottom: '6px' }}>App Release Version</label>
-                  <input type="text" value={adminPwaVersion} onChange={(e) => setAdminPwaVersion(e.target.value)} style={{ width: '100%', background: '#090d16', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '6px', color: '#fff', padding: '10px 12px', outline: 'none' }} />
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: '#94a3b8', marginBottom: '6px' }}>App Release Version (e.g. 1.5.6)</label>
+                  <input type="text" placeholder="1.5.6" value={adminPwaVersion} onChange={(e) => setAdminPwaVersion(e.target.value)} style={{ width: '100%', background: '#090d16', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '6px', color: '#fff', padding: '10px 12px', outline: 'none' }} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: '#94a3b8', marginBottom: '6px' }}>Update Download URL (APK / Play Store)</label>
+                  <input type="text" placeholder="/downloads/FastPay.apk" value={adminApkDownloadUrl} onChange={(e) => setAdminApkDownloadUrl(e.target.value)} style={{ width: '100%', background: '#090d16', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '6px', color: '#fff', padding: '10px 12px', outline: 'none' }} />
+                </div>
+                <div style={{ gridColumn: 'span 2', display: 'flex', alignItems: 'center', gap: '12px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.2)', padding: '14px 16px', borderRadius: '8px', marginTop: '6px' }}>
+                  <input
+                    type="checkbox"
+                    id="adminPwaForceUpdate"
+                    checked={adminPwaForceUpdate}
+                    onChange={(e) => setAdminPwaForceUpdate(e.target.checked)}
+                    style={{ width: '20px', height: '20px', cursor: 'pointer', accentColor: '#ef4444' }}
+                  />
+                  <label htmlFor="adminPwaForceUpdate" style={{ cursor: 'pointer', fontSize: '0.9rem', fontWeight: 600, color: '#f87171' }}>
+                    Mandatory Force Update (Locks user access until app is updated to latest version)
+                  </label>
                 </div>
                 <div style={{ gridColumn: 'span 2' }}>
                   <label style={{ display: 'block', fontSize: '0.8rem', color: '#94a3b8', marginBottom: '6px' }}>Installation Prompt instructions Text</label>
