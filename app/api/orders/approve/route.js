@@ -215,18 +215,15 @@ export async function POST(request) {
     if (expiredOrder) {
       const expiredUser = await User.findById(expiredOrder.user_id);
       if (expiredUser) {
-        // Credit the expired user's balance with the principal return amount
-        expiredUser.wallet_balance += order.price;
-        await expiredUser.save();
-
-        // Update expired order status
+        // Update expired order status to completed to unlock principal
         expiredOrder.status = 'completed';
         expiredOrder.is_payout_matched = true;
         await expiredOrder.save();
 
-        // Create principal return transaction log
+        // Create principal return transaction log with order_id reference
         await Transaction.create({
           user_id: expiredUser._id,
+          order_id: expiredOrder._id,
           type: 'principal_return',
           amount: order.price,
           status: 'completed'

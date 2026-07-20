@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
 import { User, Order, Transaction, BankDetails, Settings } from '@/lib/models';
@@ -176,7 +177,7 @@ export async function GET(request) {
         .reduce((sum, t) => sum + t.amount, 0)
     );
 
-    const isWithdrawalEligible = hasMaturedScheme;
+    const isWithdrawalEligible = hasMaturedScheme || (withdrawableBalance >= minWithdrawal && withdrawableBalance > 0);
 
     // Get linking status
     const bankDetails = await BankDetails.findOne({ user_id: session.id });

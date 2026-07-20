@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
 import { User, Transaction, VirtualAccount, BankDetails, Order, Scheme, createAdminNotification } from '@/lib/models';
@@ -238,12 +239,13 @@ export async function POST(request) {
         }, { status: 400 });
       }
 
-      // Enforce withdrawal eligibility: user must have at least one completed/matured scheme
-      const userOrders = await Order.find({ user_id: session.id, status: { $in: ['active', 'expired_pending_match', 'completed'] } });
-      const hasMaturedScheme = userOrders.some(order => order.days_remaining === 0 || order.status === 'expired_pending_match' || order.status === 'completed');
-      if (!hasMaturedScheme) {
+      // Get smart withdrawal limits
+      const limits = await getWalletWithdrawalLimit(session.id);
+
+      // Enforce withdrawal eligibility: user must have at least one completed/matured scheme OR reach minimum withdrawable profit
+      if (!limits.hasMaturedScheme && limits.withdrawableBalance < limits.minWithdrawal) {
         return NextResponse.json({
-          error: 'Withdrawals are temporarily unavailable. Withdrawals will be enabled automatically after your eligible investment scheme has matured.'
+          error: `Withdrawals become available once your withdrawable profit reaches ₹${limits.minWithdrawal.toFixed(2)} or after your investment scheme matures.`
         }, { status: 400 });
       }
 
@@ -252,9 +254,6 @@ export async function POST(request) {
       if (!bankLinked) {
         return NextResponse.json({ error: 'Please link your Bank/UPI details first in the Account section.' }, { status: 400 });
       }
-
-      // Get smart withdrawal limits
-      const limits = await getWalletWithdrawalLimit(session.id);
 
       if (limits.withdrawableBalance < reqAmount) {
         return NextResponse.json({ error: `Insufficient withdrawable balance. Your withdrawable balance is ₹${limits.withdrawableBalance.toFixed(2)} (Locked: ₹${limits.lockedAmount.toFixed(2)}).` }, { status: 400 });
