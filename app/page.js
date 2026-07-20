@@ -775,41 +775,8 @@ export default function FastPayApp() {
         setNewApkDownloadUrl(data.apkDownloadUrl);
       }
       
-      // Perform Force Update Check on ALL responses (200, 401, 403, etc.)
-      if (data.pwaSettings?.version) {
-        const sv = data.pwaSettings.version;
-        setServerAppVersion(sv);
-        setPwaUpdateNotes(data.pwaSettings.updateNotes || '');
-        
-        let currentVersion = null;
-        let nativeVersion = null;
-        if (typeof window !== 'undefined') {
-          if (window.Capacitor && window.Capacitor.isNativePlatform()) {
-            try {
-              const { App } = await import('@capacitor/app');
-              const info = await App.getInfo();
-              nativeVersion = info.version;
-            } catch (err) {
-              console.error('Error getting native app info:', err);
-            }
-          }
-          
-          const localVersion = localStorage.getItem('fp_app_version');
-          
-          if (nativeVersion && localVersion) {
-            currentVersion = isVersionOutdated(nativeVersion, localVersion) ? localVersion : nativeVersion;
-          } else {
-            currentVersion = nativeVersion || localVersion || '1.0.0';
-          }
-
-          if (isVersionOutdated(currentVersion, sv)) {
-            setShowForceUpdate(true);
-          } else {
-            localStorage.setItem('fp_app_version', sv);
-            setShowForceUpdate(false);
-          }
-        }
-      }
+      // Always verify app version against backend
+      checkAppVersion();
 
       if (data.success) {
         setUser(data.user);
@@ -1193,7 +1160,7 @@ export default function FastPayApp() {
 
     // Trigger slice refresh
     if (adminActiveSubTab === 'users') {
-      fetchAdminUsers(userPage, userSearch);
+      fetchAdminUsers(userPage, userSearch, userFilter, userSort);
     } else if (adminActiveSubTab === 'transactions') {
       fetchAdminTransactions(txPage, adminTxFilter, adminSearchQuery);
     } else if (adminActiveSubTab === 'orders') {
@@ -4834,18 +4801,34 @@ export default function FastPayApp() {
 
               {/* Search, Sort, Filter inputs */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+              {/* Search, Sort, Filter inputs */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
                 <input
                   type="text"
                   placeholder="Search user..."
                   className="form-input"
-                  value={cbSearch}
-                  onChange={(e) => { setCbSearch(e.target.value); setCbPage(1); }}
+                  value={userSearch}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setUserSearch(val);
+                    setCbSearch(val);
+                    setUserPage(1);
+                    setCbPage(1);
+                    fetchAdminUsers(1, val, userFilter, userSort);
+                  }}
                   style={{ fontSize: '0.85rem' }}
                 />
                 <select
                   className="form-input"
-                  value={cbFilter}
-                  onChange={(e) => { setCbFilter(e.target.value); setCbPage(1); }}
+                  value={userFilter}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setUserFilter(val);
+                    setCbFilter(val);
+                    setUserPage(1);
+                    setCbPage(1);
+                    fetchAdminUsers(1, userSearch, val, userSort);
+                  }}
                   style={{ fontSize: '0.85rem', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
                 >
                   <option value="all">📁 All User States</option>
@@ -4854,8 +4837,15 @@ export default function FastPayApp() {
                 </select>
                 <select
                   className="form-input"
-                  value={cbSort}
-                  onChange={(e) => { setCbSort(e.target.value); setCbPage(1); }}
+                  value={userSort}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setUserSort(val);
+                    setCbSort(val);
+                    setUserPage(1);
+                    setCbPage(1);
+                    fetchAdminUsers(1, userSearch, userFilter, val);
+                  }}
                   style={{ fontSize: '0.85rem', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
                 >
                   <option value="balance-desc">💰 Balance: High to Low</option>
@@ -4867,97 +4857,83 @@ export default function FastPayApp() {
 
               {/* Data Table */}
               <div className="glass-panel" style={{ padding: '16px' }}>
-                {(() => {
-                  let list = adminUsers.filter(u => {
-                    const matchesSearch = u.username.toLowerCase().includes(cbSearch.toLowerCase()) || u.phone.includes(cbSearch);
-                    const matchesFilter = cbFilter === 'all' ? true : cbFilter === 'suspended' ? u.is_suspended : !u.is_suspended;
-                    return matchesSearch && matchesFilter;
-                  });
-
-                  // Sorting
-                  list = list.sort((a, b) => {
-                    if (cbSort === 'balance-desc') return b.wallet_balance - a.wallet_balance;
-                    if (cbSort === 'balance-asc') return a.wallet_balance - b.wallet_balance;
-                    if (cbSort === 'username-asc') return a.username.localeCompare(b.username);
-                    if (cbSort === 'deposit-desc') return b.stats.depositTotal - a.stats.depositTotal;
-                    return 0;
-                  });
-
-                  // Pagination calculation
-                  const pageSize = 10;
-                  const totalPages = Math.ceil(list.length / pageSize) || 1;
-                  const paginatedList = list.slice((cbPage - 1) * pageSize, cbPage * pageSize);
-
-                  if (list.length === 0) {
-                    return <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-secondary)' }}>No matching users found.</div>;
-                  }
-
-                  return (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                      <div style={{ overflowX: 'auto' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
-                          <thead>
-                            <tr style={{ borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)' }}>
-                              <th style={{ padding: '8px' }}>User Details</th>
-                              <th style={{ padding: '8px' }}>Deposits</th>
-                              <th style={{ padding: '8px' }}>Withdrawals</th>
-                              <th style={{ padding: '8px' }}>Total Profits</th>
-                              <th style={{ padding: '8px', textAlign: 'right' }}>Current Balance</th>
+                {adminUsers.length === 0 ? (
+                  <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-secondary)' }}>No matching users found.</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
+                        <thead>
+                          <tr style={{ borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)' }}>
+                            <th style={{ padding: '8px' }}>User Details</th>
+                            <th style={{ padding: '8px' }}>Deposits</th>
+                            <th style={{ padding: '8px' }}>Withdrawals</th>
+                            <th style={{ padding: '8px' }}>Total Profits</th>
+                            <th style={{ padding: '8px', textAlign: 'right' }}>Current Balance</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {adminUsers.map((u) => (
+                            <tr
+                              key={u.id}
+                              onClick={() => {
+                                setSelectedAdminUserId(u.id);
+                                fetchUserProfileDetails(u.id);
+                                setAdminView('user-profile');
+                              }}
+                              className="interactive-card"
+                              style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', cursor: 'pointer' }}
+                            >
+                              <td style={{ padding: '10px 8px' }}>
+                                <div style={{ fontWeight: 700 }}>{u.username}</div>
+                                <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>ID: {u.id}</span>
+                              </td>
+                              <td style={{ padding: '10px 8px' }}>₹{(u.stats?.depositTotal || 0).toFixed(2)}</td>
+                              <td style={{ padding: '10px 8px' }}>₹{(u.stats?.withdrawalTotal || 0).toFixed(2)}</td>
+                              <td style={{ padding: '10px 8px', color: 'var(--success)' }}>₹{(u.stats?.commissionTotal || 0).toFixed(2)}</td>
+                              <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 700, color: 'var(--success)' }}>
+                                ₹{(u.wallet_balance || u.walletBalance || 0).toFixed(2)}
+                              </td>
                             </tr>
-                          </thead>
-                          <tbody>
-                            {paginatedList.map((u) => (
-                              <tr
-                                key={u.id}
-                                onClick={() => {
-                                  setSelectedAdminUserId(u.id);
-                                  fetchUserProfileDetails(u.id);
-                                  setAdminView('user-profile');
-                                }}
-                                className="interactive-card"
-                                style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', cursor: 'pointer' }}
-                              >
-                                <td style={{ padding: '10px 8px' }}>
-                                  <div style={{ fontWeight: 700 }}>{u.username}</div>
-                                  <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>ID: {u.id}</span>
-                                </td>
-                                <td style={{ padding: '10px 8px' }}>₹{u.stats.depositTotal.toFixed(2)}</td>
-                                <td style={{ padding: '10px 8px' }}>₹{u.stats.withdrawalTotal.toFixed(2)}</td>
-                                <td style={{ padding: '10px 8px', color: 'var(--success)' }}>₹{u.stats.commissionTotal.toFixed(2)}</td>
-                                <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 700, color: 'var(--success)' }}>
-                                  ₹{u.wallet_balance.toFixed(2)}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
 
-                      {/* Pagination Controls */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--glass-border)', paddingTop: '10px', fontSize: '0.8rem' }}>
-                        <span style={{ color: 'var(--text-secondary)' }}>Page {cbPage} of {totalPages} ({list.length} total users)</span>
-                        <div style={{ display: 'flex', gap: '6px' }}>
-                          <button
-                            disabled={cbPage === 1}
-                            onClick={() => setCbPage(prev => Math.max(1, prev - 1))}
-                            className="form-input"
-                            style={{ width: 'auto', padding: '4px 10px', background: cbPage === 1 ? 'transparent' : 'var(--bg-secondary)', cursor: cbPage === 1 ? 'default' : 'pointer', opacity: cbPage === 1 ? 0.4 : 1 }}
-                          >
-                            Prev
-                          </button>
-                          <button
-                            disabled={cbPage === totalPages}
-                            onClick={() => setCbPage(prev => Math.min(totalPages, prev + 1))}
-                            className="form-input"
-                            style={{ width: 'auto', padding: '4px 10px', background: cbPage === totalPages ? 'transparent' : 'var(--bg-secondary)', cursor: cbPage === totalPages ? 'default' : 'pointer', opacity: cbPage === totalPages ? 0.4 : 1 }}
-                          >
-                            Next
-                          </button>
-                        </div>
+                    {/* Pagination Controls */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--glass-border)', paddingTop: '10px', fontSize: '0.8rem' }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>Page {userPage} of {userTotalPages} ({adminTotalUsersCount} total registered users)</span>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button
+                          disabled={userPage <= 1}
+                          onClick={() => {
+                            const newP = Math.max(1, userPage - 1);
+                            setUserPage(newP);
+                            setCbPage(newP);
+                            fetchAdminUsers(newP, userSearch, userFilter, userSort);
+                          }}
+                          className="form-input"
+                          style={{ width: 'auto', padding: '4px 10px', background: userPage <= 1 ? 'transparent' : 'var(--bg-secondary)', cursor: userPage <= 1 ? 'default' : 'pointer', opacity: userPage <= 1 ? 0.4 : 1 }}
+                        >
+                          Prev
+                        </button>
+                        <button
+                          disabled={userPage >= userTotalPages}
+                          onClick={() => {
+                            const newP = Math.min(userTotalPages, userPage + 1);
+                            setUserPage(newP);
+                            setCbPage(newP);
+                            fetchAdminUsers(newP, userSearch, userFilter, userSort);
+                          }}
+                          className="form-input"
+                          style={{ width: 'auto', padding: '4px 10px', background: userPage >= userTotalPages ? 'transparent' : 'var(--bg-secondary)', cursor: userPage >= userTotalPages ? 'default' : 'pointer', opacity: userPage >= userTotalPages ? 0.4 : 1 }}
+                        >
+                          Next
+                        </button>
                       </div>
                     </div>
-                  );
-                })()}
+                  </div>
+                )}
               </div>
             </div>
           )}

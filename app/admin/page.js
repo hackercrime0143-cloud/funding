@@ -114,6 +114,7 @@ export default function AdminPage() {
     activeInvestments: 0
   });
   const [adminUsers, setAdminUsers] = useState([]);
+  const [adminTotalUsersCount, setAdminTotalUsersCount] = useState(0);
   const [adminTransactions, setAdminTransactions] = useState([]);
   const [adminWithdrawals, setAdminWithdrawals] = useState([]);
   const [adminWithdrawalsTotalPages, setAdminWithdrawalsTotalPages] = useState(1);
@@ -358,6 +359,7 @@ export default function AdminPage() {
         setAdminUsers(data.users);
         setUserPage(data.pagination.page);
         setUserTotalPages(data.pagination.pages);
+        setAdminTotalUsersCount(data.pagination.total);
       }
     } catch (e) {
       console.error('Error fetching users:', e);
@@ -1734,7 +1736,7 @@ export default function AdminPage() {
 
                   {/* Pagination control */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '16px' }}>
-                    <span style={{ fontSize: '0.8rem', color: '#64748b' }}>Showing Page {userPage} of {userTotalPages}</span>
+                    <span style={{ fontSize: '0.8rem', color: '#64748b' }}>Showing Page {userPage} of {userTotalPages} ({adminTotalUsersCount} total registered users)</span>
                     <div style={{ display: 'flex', gap: '8px' }}>
                       <button disabled={userPage === 1} onClick={() => setUserPage(p => Math.max(1, p - 1))} style={{ background: 'rgba(255,255,255,0.05)', border: 'none', color: '#fff', padding: '6px 12px', borderRadius: '4px', opacity: userPage === 1 ? 0.5 : 1, cursor: 'pointer' }}>Prev</button>
                       <button disabled={userPage === userTotalPages} onClick={() => setUserPage(p => Math.min(userTotalPages, p + 1))} style={{ background: 'rgba(255,255,255,0.05)', border: 'none', color: '#fff', padding: '6px 12px', borderRadius: '4px', opacity: userPage === userTotalPages ? 0.5 : 1, cursor: 'pointer' }}>Next</button>

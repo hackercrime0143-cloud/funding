@@ -59,7 +59,7 @@ export async function GET(request) {
     let sortObj = { created_at: -1, _id: -1 };
     if (sort === 'date-asc') {
       sortObj = { created_at: 1, _id: 1 };
-    } else if (sort === 'balance-desc') {
+    } else if (sort === 'balance-desc' || sort === 'deposit-desc') {
       sortObj = { wallet_balance: -1, _id: -1 };
     } else if (sort === 'balance-asc') {
       sortObj = { wallet_balance: 1, _id: 1 };
